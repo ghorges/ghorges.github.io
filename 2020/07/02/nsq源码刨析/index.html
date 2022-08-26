@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=2">
+<meta name="theme-color" content="#222">
+<meta name="generator" content="Hexo 4.2.1">
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/apple-touch-icon-next.png">
+  <link rel="mask-icon" href="/images/top-logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+<link rel="stylesheet" href="/lib/font-awesome/css/all.min.css">
+
+<script id="hexo-configurations">
+    var NexT = window.NexT || {};
+    var CONFIG = {"hostname":"hao336.cn","root":"/","scheme":"Pisces","version":"7.8.0","exturl":false,"sidebar":{"position":"left","display":"post","padding":18,"offset":12,"onmobile":false},"copycode":{"enable":true,"show_result":true,"style":"mac"},"back2top":{"enable":true,"sidebar":true,"scrollpercent":true},"bookmark":{"enable":false,"color":"#222","save":"auto"},"fancybox":false,"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":"valine","storage":true,"lazyload":false,"nav":null,"activeClass":"valine"},"algolia":{"hits":{"per_page":10},"labels":{"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}},"localsearch":{"enable":false,"trigger":"auto","top_n_per_article":1,"unescape":false,"preload":false},"motion":{"enable":true,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}}};
+  </script>
+
+  <meta name="description" content="概述本博客是讲解 nsq 中一些文件中的主要函数的作用，另外，我个人还针对 nsq v0.1.1 版本的相关代码实现做了一些注释笔记，感兴趣的可以自行阅读：nsq-0.1.1-ghorges">
+<meta property="og:type" content="article">
+<meta property="og:title" content="nsq源码刨析">
+<meta property="og:url" content="https://hao336.cn/2020/07/02/nsq%E6%BA%90%E7%A0%81%E5%88%A8%E6%9E%90/index.html">
+<meta property="og:site_name" content="木叶的博客">
+<meta property="og:description" content="概述本博客是讲解 nsq 中一些文件中的主要函数的作用，另外，我个人还针对 nsq v0.1.1 版本的相关代码实现做了一些注释笔记，感兴趣的可以自行阅读：nsq-0.1.1-ghorges">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://hao336.cn/images/image-20200702162701931.png">
+<meta property="og:image" content="https://hao336.cn/images/image-20200702164006939.png">
+<meta property="og:image" content="https://hao336.cn/images/image-20200702163222651.png">
+<meta property="og:image" content="https://hao336.cn/images/image-20200702163517324.png">
+<meta property="og:image" content="https://hao336.cn/images/image-20200702163633711.png">
+<meta property="og:image" content="https://hao336.cn/images/image-20200702172346576.png">
+<meta property="og:image" content="https://hao336.cn/images/image-20200702173446652.png">
+<meta property="og:image" content="https://hao336.cn/images/image-20200702173712189.png">
+<meta property="og:image" content="https://hao336.cn/images/image-20200702181255128.png">
+<meta property="og:image" content="https://hao336.cn/images/image-20200702181445852.png">
+<meta property="og:image" content="https://hao336.cn/images/image-20200702181605857.png">
+<meta property="og:image" content="https://hao336.cn/images/image-20200702181623300.png">
+<meta property="og:image" content="https://hao336.cn/images/image-20200702181739267.png">
+<meta property="og:image" content="https://hao336.cn/images/image-20200702181834014.png">
+<meta property="og:image" content="https://hao336.cn/images/image-20200702181908081.png">
+<meta property="og:image" content="https://hao336.cn/images/image-20200702182123785.png">
+<meta property="article:published_time" content="2020-07-02T08:15:20.000Z">
+<meta property="article:modified_time" content="2022-08-26T16:04:57.652Z">
+<meta property="article:author" content="木叶">
+<meta property="article:tag" content="nsq">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://hao336.cn/images/image-20200702162701931.png">
+
+<link rel="canonical" href="https://hao336.cn/2020/07/02/nsq%E6%BA%90%E7%A0%81%E5%88%A8%E6%9E%90/">
+
+
+<script id="page-configurations">
+  // https://hexo.io/docs/variables.html
+  CONFIG.page = {
+    sidebar: "",
+    isHome : false,
+    isPost : true,
+    lang   : 'zh-CN'
+  };
+</script>
+
+  <title>nsq源码刨析 | 木叶的博客</title>
+  
+
+
+
+
+
+
+  <noscript>
+  <style>
+  .use-motion .brand,
+  .use-motion .menu-item,
+  .sidebar-inner,
+  .use-motion .post-block,
+  .use-motion .pagination,
+  .use-motion .comments,
+  .use-motion .post-header,
+  .use-motion .post-body,
+  .use-motion .collection-header { opacity: initial; }
+
+  .use-motion .site-title,
+  .use-motion .site-subtitle {
+    opacity: initial;
+    top: initial;
+  }
+
+  .use-motion .logo-line-before i { left: initial; }
+  .use-motion .logo-line-after i { right: initial; }
+  </style>
+</noscript>
+
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="container use-motion">
+    <div class="headband"></div>
+
+    <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏">
+      <span class="toggle-line toggle-line-first"></span>
+      <span class="toggle-line toggle-line-middle"></span>
+      <span class="toggle-line toggle-line-last"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <span class="logo-line-before"><i></i></span>
+      <h1 class="site-title">木叶的博客</h1>
+      <span class="logo-line-after"><i></i></span>
+    </a>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger">
+    </div>
+  </div>
+</div>
+
+
+
+
+<nav class="site-nav">
+  <ul id="menu" class="main-menu menu">
+        <li class="menu-item menu-item-home">
+
+    <a href="/" rel="section"><i class="fa fa-home fa-fw"></i>首页</a>
+
+  </li>
+        <li class="menu-item menu-item-about">
+
+    <a href="/about/" rel="section"><i class="fa fa-user fa-fw"></i>关于</a>
+
+  </li>
+        <li class="menu-item menu-item-tags">
+
+    <a href="/tags/" rel="section"><i class="fa fa-tags fa-fw"></i>标签</a>
+
+  </li>
+  </ul>
+</nav>
+
+
+
+
+</div>
+    </header>
+
+    
+
+
+    <main class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          
+
+          <div class="content post posts-expand">
+            
+
+    
+  
+  
+  <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="https://hao336.cn/2020/07/02/nsq%E6%BA%90%E7%A0%81%E5%88%A8%E6%9E%90/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="木叶">
+      <meta itemprop="description" content="记录自己成长、生活和变化">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="木叶的博客">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          nsq源码刨析
+        </h1>
+
+        <div class="post-meta">
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-calendar"></i>
+              </span>
+              <span class="post-meta-item-text">发表于</span>
+
+              <time title="创建时间：2020-07-02 16:15:20" itemprop="dateCreated datePublished" datetime="2020-07-02T16:15:20+08:00">2020-07-02</time>
+            </span>
+              <span class="post-meta-item">
+                <span class="post-meta-item-icon">
+                  <i class="far fa-calendar-check"></i>
+                </span>
+                <span class="post-meta-item-text">更新于</span>
+                <time title="修改时间：2022-08-27 00:04:57" itemprop="dateModified" datetime="2022-08-27T00:04:57+08:00">2022-08-27</time>
+              </span>
+
+          
+  
+  <span class="post-meta-item">
+    
+      <span class="post-meta-item-icon">
+        <i class="far fa-comment"></i>
+      </span>
+      <span class="post-meta-item-text">Valine：</span>
+    
+    <a title="valine" href="/2020/07/02/nsq%E6%BA%90%E7%A0%81%E5%88%A8%E6%9E%90/#valine-comments" itemprop="discussionUrl">
+      <span class="post-comments-count valine-comment-count" data-xid="/2020/07/02/nsq%E6%BA%90%E7%A0%81%E5%88%A8%E6%9E%90/" itemprop="commentCount"></span>
+    </a>
+  </span>
+  
+  
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+        <h2 id="概述"><a href="#概述" class="headerlink" title="概述"></a>概述</h2><p>本博客是讲解 nsq 中一些文件中的主要函数的作用，另外，我个人还针对 nsq v0.1.1 版本的相关代码实现做了一些注释笔记，感兴趣的可以自行阅读：<a href="https://github.com/ghorges/nsq-0.1.1-ghorges" target="_blank" rel="noopener">nsq-0.1.1-ghorges</a></p>
+<a id="more"></a>
+
+<h2 id="nsq-go"><a href="#nsq-go" class="headerlink" title="nsq.go"></a>nsq.go</h2><p>main 函数在这里执行，这里主要启动了 3 个协程（算上主协程共四个）：</p>
+<p><img src="/images/image-20200702162701931.png" alt="image-20200702162701931"></p>
+<h2 id="queue-go-amp-amp-diskqueue-go"><a href="#queue-go-amp-amp-diskqueue-go" class="headerlink" title="queue.go &amp;&amp; diskqueue.go"></a>queue.go &amp;&amp; diskqueue.go</h2><p>这个函数就不详细讲了，因为 nsq 的队列不是一个 msg 有序的队列，而是如果消息塞满了，比如 topic 或者 channel 中消息放不下了，那么就会放到它们的 queue 中，这也可能会导致消息失序。当然了，<strong>nsq 并不关心是否失序</strong>，一个 msg 也可以被下发多次（一定会成功，否则就会重试），所以业务方需要有幂等性。</p>
+<p>先讲 queue 是因为后面的 topic 和 channel 会用到 queue，而 queue 基本没有依赖。</p>
+<p>由这个 interface 可以看出 queue 定义了 get、put、readreadychan、close 接口。</p>
+<p><img src="/images/image-20200702164006939.png" alt="image-20200702164006939"></p>
+<p>这里仅说说 ReadReadyChan，其他几个简单明了，就不加以赘述。这个接口返回的是一个<code>chan int</code>，调用者一般会使用<code>&lt;-ReadReadyChan()</code>进行等待，如果队列中有消息，那么会给这个 chan 赋值（或者可以用户自己定义，等信息到达一定数量再进行赋值）。</p>
+<p>diskqueue 是实现了 queue 的磁盘版。</p>
+<h2 id="topic-go"><a href="#topic-go" class="headerlink" title="topic.go"></a>topic.go</h2><p>不同的 topicName 都有各自的 topic。</p>
+<p><img src="/images/image-20200702163222651.png" alt="image-20200702163222651"></p>
+<p>NewTopic 是在每次有新 topicName 时调用的，并且每次新建 topic 的时候，都会建立此 topic 的一个 Router 循环。</p>
+<p>请看下面两张图，这个循环主要有两个 chan：一个是新建立 channel 时触发的，并对这个 topic 建立一个循环（这个函数是将 msg 放入所有 channel）；另一个是当每次有生产者将消息发送到 nsq 中后触发的，topic 将此消息写到每一个 channel 中，如果 chan 被写满了，那么会先写到 queue 中（进入到 default 中），等到合适的时机在返回此 chan 中。</p>
+<p><img src="/images/image-20200702163517324.png" alt="image-20200702163517324"></p>
+<p><img src="/images/image-20200702163633711.png" alt="image-20200702163633711"></p>
+<p>topicFactory 是 main 启动的一个协程，每次有 http连接来的时候会调用 newTopicChan。</p>
+<p><img src="/images/image-20200702172346576.png" alt="image-20200702172346576"></p>
+<h2 id="channel-go"><a href="#channel-go" class="headerlink" title="channel.go"></a>channel.go</h2><p>channel 和 topic 很多地方代码很像。因为放入队列等操作几乎是一样的，但是不同点也很明显。</p>
+<p>当消费者发送的 cmd 为 FIN 和 REQ 的时候，分别会执行这两个函数：</p>
+<p><img src="/images/image-20200702173446652.png" alt="image-20200702173446652"></p>
+<p>这个函数是将需要发送的消息返回到 protocol 中，并且给 inFlightMessageChan 赋值，inFlightMessageChan 的作用是将此 msg 保存一段时间，等客户端发送 cmd 为 FIN 信号后，会将这个 msg 清除；或者客户端发送 REQ/超时，将这个消息重新放入 chan 中。</p>
+<p><img src="/images/image-20200702173712189.png" alt="image-20200702173712189"></p>
+<p>channel 的 Router 中有两个 select，一个是处理消费者发来的信息，另一个是处理 topic 发来的信息。</p>
+<p><img src="/images/image-20200702181255128.png" alt="image-20200702181255128"></p>
+<h2 id="protocol-go-amp-amp-protocol-v1-go"><a href="#protocol-go-amp-amp-protocol-v1-go" class="headerlink" title="protocol.go &amp;&amp; protocol_v1.go"></a>protocol.go &amp;&amp; protocol_v1.go</h2><p>protocol 接口定义了 IOLoop。</p>
+<p><img src="/images/image-20200702181445852.png" alt="image-20200702181445852"></p>
+<p>protocol_v1 的实现中使用了反射机制，将反射的函数执行。</p>
+<p><img src="/images/image-20200702181605857.png" alt="image-20200702181605857"></p>
+<p><img src="/images/image-20200702181623300.png" alt="image-20200702181623300"></p>
+<p>消费者一共可以调用这五个函数。</p>
+<p><img src="/images/image-20200702181739267.png" alt="image-20200702181739267"></p>
+<h2 id="client-go"><a href="#client-go" class="headerlink" title="client.go"></a>client.go</h2><p>client 中有一个状态机，每次执行 protocol_v1 的函数时，都会改变状态机。注意：上述函数的执行必须是有序的，否则就会给消费者返回错误。</p>
+<p><img src="/images/image-20200702181834014.png" alt="image-20200702181834014"></p>
+<p><img src="/images/image-20200702181908081.png" alt="image-20200702181908081"></p>
+<p>client 中还有一个 Handle 是消费者通过 tcp 连接并处理完毕后会进入这里。通过消费者发送的消息判断使用哪个 protocol。</p>
+<p><img src="/images/image-20200702182123785.png" alt="image-20200702182123785"></p>
+<p>分析到此结束。</p>
+
+    </div>
+
+    
+    
+    
+        
+
+<div>
+<ul class="post-copyright">
+  <li class="post-copyright-author">
+    <strong>本文作者： </strong>木叶
+  </li>
+  <li class="post-copyright-link">
+    <strong>本文链接：</strong>
+    <a href="https://hao336.cn/2020/07/02/nsq%E6%BA%90%E7%A0%81%E5%88%A8%E6%9E%90/" title="nsq源码刨析">https://hao336.cn/2020/07/02/nsq源码刨析/</a>
+  </li>
+  <li class="post-copyright-license">
+    <strong>版权声明： </strong>本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/zh-CN" rel="noopener" target="_blank"><i class="fab fa-fw fa-creative-commons"></i>BY-NC-SA</a> 许可协议。转载请注明出处！
+  </li>
+</ul>
+</div>
+
+
+      <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/nsq/" rel="tag"># nsq</a>
+          </div>
+
+        
+
+
+        
+    <div class="post-nav">
+      <div class="post-nav-item">
+    <a href="/2020/06/30/nsq-1/" rel="prev" title="nsq-1">
+      <i class="fa fa-chevron-left"></i> nsq-1
+    </a></div>
+      <div class="post-nav-item">
+    <a href="/2022/08/27/PostgreSQL-gis%20Redis-geo%20buntdb%E6%80%A7%E8%83%BD%E6%AF%94%E6%8B%BC/" rel="next" title="PostgreSQL-gis Redis-geo buntdb性能比拼">
+      PostgreSQL-gis Redis-geo buntdb性能比拼 <i class="fa fa-chevron-right"></i>
+    </a></div>
+    </div>
+      </footer>
+    
+  </article>
+  
+  
+  
+
+
+
+          </div>
+          
+    <div class="comments" id="valine-comments"></div>
+
+<script>
+  window.addEventListener('tabs:register', () => {
+    let { activeClass } = CONFIG.comments;
+    if (CONFIG.comments.storage) {
+      activeClass = localStorage.getItem('comments_active') || activeClass;
+    }
+    if (activeClass) {
+      let activeTab = document.querySelector(`a[href="#comment-${activeClass}"]`);
+      if (activeTab) {
+        activeTab.click();
+      }
+    }
+  });
+  if (CONFIG.comments.storage) {
+    window.addEventListener('tabs:click', event => {
+      if (!event.target.matches('.tabs-comment .tab-content .tab-pane')) return;
+      let commentClass = event.target.classList[1];
+      localStorage.setItem('comments_active', commentClass);
+    });
+  }
+</script>
+
+        </div>
+          
+  
+  <div class="toggle sidebar-toggle">
+    <span class="toggle-line toggle-line-first"></span>
+    <span class="toggle-line toggle-line-middle"></span>
+    <span class="toggle-line toggle-line-last"></span>
+  </div>
+
+  <aside class="sidebar">
+    <div class="sidebar-inner">
+
+      <ul class="sidebar-nav motion-element">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <!--noindex-->
+      <div class="post-toc-wrap sidebar-panel">
+          <div class="post-toc motion-element"><ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#概述"><span class="nav-number">1.</span> <span class="nav-text">概述</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#nsq-go"><span class="nav-number">2.</span> <span class="nav-text">nsq.go</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#queue-go-amp-amp-diskqueue-go"><span class="nav-number">3.</span> <span class="nav-text">queue.go &amp;&amp; diskqueue.go</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#topic-go"><span class="nav-number">4.</span> <span class="nav-text">topic.go</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#channel-go"><span class="nav-number">5.</span> <span class="nav-text">channel.go</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#protocol-go-amp-amp-protocol-v1-go"><span class="nav-number">6.</span> <span class="nav-text">protocol.go &amp;&amp; protocol_v1.go</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#client-go"><span class="nav-number">7.</span> <span class="nav-text">client.go</span></a></li></ol></div>
+      </div>
+      <!--/noindex-->
+
+      <div class="site-overview-wrap sidebar-panel">
+        <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name">木叶</p>
+  <div class="site-description" itemprop="description">记录自己成长、生活和变化</div>
+</div>
+<div class="site-state-wrap motion-element">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+          <a href="/archives">
+          <span class="site-state-item-count">12</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-tags">
+            <a href="/tags/">
+          
+        <span class="site-state-item-count">6</span>
+        <span class="site-state-item-name">标签</span></a>
+      </div>
+  </nav>
+</div>
+  <div class="links-of-author motion-element">
+      <span class="links-of-author-item">
+        <a href="https://github.com/ghorges" title="GitHub → https:&#x2F;&#x2F;github.com&#x2F;ghorges" rel="noopener" target="_blank"><i class="fab fa-github fa-fw"></i>GitHub</a>
+      </span>
+      <span class="links-of-author-item">
+        <a href="mailto:mayichenga@gmail.com" title="E-Mail → mailto:mayichenga@gmail.com" rel="noopener" target="_blank"><i class="fa fa-envelope fa-fw"></i>E-Mail</a>
+      </span>
+  </div>
+
+
+
+      </div>
+        <div class="back-to-top motion-element">
+          <i class="fa fa-arrow-up"></i>
+          <span>0%</span>
+        </div>
+
+    </div>
+  </aside>
+  <div id="sidebar-dimmer"></div>
+
+
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        
+
+        
+
+<div class="copyright">
+  
+  &copy; 
+  <span itemprop="copyrightYear">2022</span>
+  <span class="with-love">
+    <i class="fa fa-heart"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">muye</span>
+</div>
+
+        
+
+
+
+
+
+
+
+
+      </div>
+    </footer>
+  </div>
+
+  
+  <script src="/lib/anime.min.js"></script>
+  <script src="/lib/velocity/velocity.min.js"></script>
+  <script src="/lib/velocity/velocity.ui.min.js"></script>
+
+<script src="/js/utils.js"></script>
+
+<script src="/js/motion.js"></script>
+
+
+<script src="/js/schemes/pisces.js"></script>
+
+
+<script src="/js/next-boot.js"></script>
+
+
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+  
+
+
+<script>
+NexT.utils.loadComments(document.querySelector('#valine-comments'), () => {
+  NexT.utils.getScript('//unpkg.com/valine/dist/Valine.min.js', () => {
+    var GUEST = ['nick', 'mail', 'link'];
+    var guest = 'nick,mail,link';
+    guest = guest.split(',').filter(item => {
+      return GUEST.includes(item);
+    });
+    new Valine({
+      el         : '#valine-comments',
+      verify     : false,
+      notify     : false,
+      appId      : 'ekxvRu1kXvqXEgpw5jdtsvQq-gzGzoHsz',
+      appKey     : '0DwW3KORbtYml3EGcNh6Pwop',
+      placeholder: "有疑惑或心得都可以分享出来哦~",
+      avatar     : 'mm',
+      meta       : guest,
+      pageSize   : '10' || 10,
+      visitor    : false,
+      lang       : '' || 'zh-cn',
+      path       : location.pathname,
+      recordIP   : false,
+      serverURLs : ''
+    });
+  }, window.Valine);
+});
+</script>
+
+</body>
+</html>

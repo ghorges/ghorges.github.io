@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=2">
+<meta name="theme-color" content="#222">
+<meta name="generator" content="Hexo 4.2.1">
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/apple-touch-icon-next.png">
+  <link rel="mask-icon" href="/images/top-logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+<link rel="stylesheet" href="/lib/font-awesome/css/all.min.css">
+
+<script id="hexo-configurations">
+    var NexT = window.NexT || {};
+    var CONFIG = {"hostname":"hao336.cn","root":"/","scheme":"Pisces","version":"7.8.0","exturl":false,"sidebar":{"position":"left","display":"post","padding":18,"offset":12,"onmobile":false},"copycode":{"enable":true,"show_result":true,"style":"mac"},"back2top":{"enable":true,"sidebar":true,"scrollpercent":true},"bookmark":{"enable":false,"color":"#222","save":"auto"},"fancybox":false,"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":"valine","storage":true,"lazyload":false,"nav":null,"activeClass":"valine"},"algolia":{"hits":{"per_page":10},"labels":{"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}},"localsearch":{"enable":false,"trigger":"auto","top_n_per_article":1,"unescape":false,"preload":false},"motion":{"enable":true,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}}};
+  </script>
+
+  <meta name="description" content="为什么需要索引？ 一句话：索引的目的就是提高效率。 索引的常见模型哈希哈希速度很快，但是有一些缺点：  只适用于等值查询，不适用于范围查询。 如果数据量特别多，冲突多，哈希速度会显著下降。 不能利用索引排序（order by）。 不支持多列联合索引的最左匹配规则。  所以哈希适用于等值查询，Nosql 等等，但是不适合 mysql。">
+<meta property="og:type" content="article">
+<meta property="og:title" content="数据库索引">
+<meta property="og:url" content="https://hao336.cn/2020/06/19/%E6%95%B0%E6%8D%AE%E5%BA%93%E7%B4%A2%E5%BC%95/index.html">
+<meta property="og:site_name" content="木叶的博客">
+<meta property="og:description" content="为什么需要索引？ 一句话：索引的目的就是提高效率。 索引的常见模型哈希哈希速度很快，但是有一些缺点：  只适用于等值查询，不适用于范围查询。 如果数据量特别多，冲突多，哈希速度会显著下降。 不能利用索引排序（order by）。 不支持多列联合索引的最左匹配规则。  所以哈希适用于等值查询，Nosql 等等，但是不适合 mysql。">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://hao336.cn/images/image-20200619215844564.png">
+<meta property="og:image" content="https://hao336.cn/images/image-20200620054932909.png">
+<meta property="og:image" content="https://hao336.cn/images/image-20200620063223055.png">
+<meta property="og:image" content="https://hao336.cn/images/image-20200620063427359.png">
+<meta property="og:image" content="https://hao336.cn/images/image-20200620070422847.png">
+<meta property="article:published_time" content="2020-06-19T13:08:22.000Z">
+<meta property="article:modified_time" content="2022-08-26T16:04:57.652Z">
+<meta property="article:author" content="木叶">
+<meta property="article:tag" content="数据库">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://hao336.cn/images/image-20200619215844564.png">
+
+<link rel="canonical" href="https://hao336.cn/2020/06/19/%E6%95%B0%E6%8D%AE%E5%BA%93%E7%B4%A2%E5%BC%95/">
+
+
+<script id="page-configurations">
+  // https://hexo.io/docs/variables.html
+  CONFIG.page = {
+    sidebar: "",
+    isHome : false,
+    isPost : true,
+    lang   : 'zh-CN'
+  };
+</script>
+
+  <title>数据库索引 | 木叶的博客</title>
+  
+
+
+
+
+
+
+  <noscript>
+  <style>
+  .use-motion .brand,
+  .use-motion .menu-item,
+  .sidebar-inner,
+  .use-motion .post-block,
+  .use-motion .pagination,
+  .use-motion .comments,
+  .use-motion .post-header,
+  .use-motion .post-body,
+  .use-motion .collection-header { opacity: initial; }
+
+  .use-motion .site-title,
+  .use-motion .site-subtitle {
+    opacity: initial;
+    top: initial;
+  }
+
+  .use-motion .logo-line-before i { left: initial; }
+  .use-motion .logo-line-after i { right: initial; }
+  </style>
+</noscript>
+
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="container use-motion">
+    <div class="headband"></div>
+
+    <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏">
+      <span class="toggle-line toggle-line-first"></span>
+      <span class="toggle-line toggle-line-middle"></span>
+      <span class="toggle-line toggle-line-last"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <span class="logo-line-before"><i></i></span>
+      <h1 class="site-title">木叶的博客</h1>
+      <span class="logo-line-after"><i></i></span>
+    </a>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger">
+    </div>
+  </div>
+</div>
+
+
+
+
+<nav class="site-nav">
+  <ul id="menu" class="main-menu menu">
+        <li class="menu-item menu-item-home">
+
+    <a href="/" rel="section"><i class="fa fa-home fa-fw"></i>首页</a>
+
+  </li>
+        <li class="menu-item menu-item-about">
+
+    <a href="/about/" rel="section"><i class="fa fa-user fa-fw"></i>关于</a>
+
+  </li>
+        <li class="menu-item menu-item-tags">
+
+    <a href="/tags/" rel="section"><i class="fa fa-tags fa-fw"></i>标签</a>
+
+  </li>
+  </ul>
+</nav>
+
+
+
+
+</div>
+    </header>
+
+    
+
+
+    <main class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          
+
+          <div class="content post posts-expand">
+            
+
+    
+  
+  
+  <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="https://hao336.cn/2020/06/19/%E6%95%B0%E6%8D%AE%E5%BA%93%E7%B4%A2%E5%BC%95/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="木叶">
+      <meta itemprop="description" content="记录自己成长、生活和变化">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="木叶的博客">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          数据库索引
+        </h1>
+
+        <div class="post-meta">
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-calendar"></i>
+              </span>
+              <span class="post-meta-item-text">发表于</span>
+
+              <time title="创建时间：2020-06-19 21:08:22" itemprop="dateCreated datePublished" datetime="2020-06-19T21:08:22+08:00">2020-06-19</time>
+            </span>
+              <span class="post-meta-item">
+                <span class="post-meta-item-icon">
+                  <i class="far fa-calendar-check"></i>
+                </span>
+                <span class="post-meta-item-text">更新于</span>
+                <time title="修改时间：2022-08-27 00:04:57" itemprop="dateModified" datetime="2022-08-27T00:04:57+08:00">2022-08-27</time>
+              </span>
+
+          
+  
+  <span class="post-meta-item">
+    
+      <span class="post-meta-item-icon">
+        <i class="far fa-comment"></i>
+      </span>
+      <span class="post-meta-item-text">Valine：</span>
+    
+    <a title="valine" href="/2020/06/19/%E6%95%B0%E6%8D%AE%E5%BA%93%E7%B4%A2%E5%BC%95/#valine-comments" itemprop="discussionUrl">
+      <span class="post-comments-count valine-comment-count" data-xid="/2020/06/19/%E6%95%B0%E6%8D%AE%E5%BA%93%E7%B4%A2%E5%BC%95/" itemprop="commentCount"></span>
+    </a>
+  </span>
+  
+  
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+        <p>为什么需要索引？</p>
+<p>一句话：索引的目的就是提高效率。</p>
+<h2 id="索引的常见模型"><a href="#索引的常见模型" class="headerlink" title="索引的常见模型"></a>索引的常见模型</h2><h3 id="哈希"><a href="#哈希" class="headerlink" title="哈希"></a>哈希</h3><p>哈希速度很快，但是有一些缺点：</p>
+<ul>
+<li>只适用于等值查询，不适用于范围查询。</li>
+<li>如果数据量特别多，冲突多，哈希速度会显著下降。</li>
+<li>不能利用索引排序（order by）。</li>
+<li>不支持多列联合索引的最左匹配规则。</li>
+</ul>
+<p>所以哈希适用于等值查询，Nosql 等等，但是不适合 mysql。</p>
+<a id="more"></a>
+
+<h3 id="有序数组"><a href="#有序数组" class="headerlink" title="有序数组"></a>有序数组</h3><p>有序数组在等值查询和范围查询速度都很快，但是插入速度太慢，成本太高。</p>
+<h3 id="B-tree"><a href="#B-tree" class="headerlink" title="B tree"></a>B tree</h3><p>为什么使用 B tree，因为 B tree 是多叉树，比二叉树更“矮胖”，而数据库是存储在硬盘中的（虽然最开始的几层可能在内存中，但是绝大部分还是在硬盘中的），如果使用二叉树存储会导致多次读取硬盘（每次随机读取硬盘大约 10ms，需要先通过 DMA 将数据写入内存，然后从内存中取到这个数据，伴随着可能涉及到分页等等），效率相对低，所以使用 B tree。</p>
+<p>InnoDB 中的 B tree 都是 B+ tree，为什么要用 B+ tree 而不使用 B tree？</p>
+<ul>
+<li>B tree 每一个节点都存数据，但是 B+ tree 只有叶子节点存数据，所以更加稳定（速度并不慢，可以结合二分想想）。</li>
+<li>范围查找来说（这里应该是最左匹配来算，比如 *%，如果不是形如 *% 还是得遍历全树。），B+ tree 只用找到第一个，从第一个开始向后找（这里是因为 innoDB 在 实现 B+ tree 时做了优化，每个叶子节点都会指向后一个叶子节点，形成一个链表。），但是 B tree 需要一直递归。</li>
+</ul>
+<h2 id="InnoDB-的索引模型"><a href="#InnoDB-的索引模型" class="headerlink" title="InnoDB 的索引模型"></a>InnoDB 的索引模型</h2><p>在 InnoDB 中，表都是根据<strong>主键</strong>顺序以索引的形式存放的，这种存储方式的表称为索引组织表。InnoDB 使用了 B+ 树索引模型，所以数据都是存储在 B+ 树中的。</p>
+<p>（说句题外话：也许你会想如果一个表没有声明主键，InnDB 是如何运作的？其实如果一个表没有声明主键和一个不为 null 的唯一索引，InnoDB 会自动增加一个 6 字节的整数列（类似索引一样，但是不能被访问到，6 个字节看着不大，其实挺大的，2^48）。详情请看：<a href="https://blog.csdn.net/A510677208/article/details/101327857" target="_blank" rel="noopener">InnoDB 没有声明主键是如何运转的</a>）</p>
+<p>假设有这样一个表：</p>
+<figure class="highlight pgsql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">mysql&gt; <span class="keyword">create</span> <span class="keyword">table</span> T(id <span class="type">int</span> <span class="keyword">primary key</span>, </span><br><span class="line">k <span class="type">int</span> <span class="keyword">not</span> <span class="keyword">null</span>, </span><br><span class="line"><span class="type">name</span> <span class="type">varchar</span>(<span class="number">16</span>),</span><br><span class="line"><span class="keyword">index</span> (k))engine=InnoDB;</span><br></pre></td></tr></table></figure>
+
+<p>表中 R1~R5 的 (ID,k) 值分别为 (100,1)、(200,2)、(300,3)、(500,5) 和 (600,6)，两棵树的示例示意图如下。</p>
+<p><img src="/images/image-20200619215844564.png" alt="image-20200619215844564"></p>
+<p>索引类型分为主键索引和非主键索引，主键索引的叶子节点存的是整行数据。在 InnoDB 里，主键索引也被称为<strong>聚簇索引</strong>（clustered index）（存的是全量的信息）。非主键索引的叶子节点内容是主键的值。在 InnoDB 里，非主键索引也被称为<strong>二级索引</strong>（secondary index）。</p>
+<p>那么基于主键索引和普通索引有什么区别？</p>
+<p>比方说：</p>
+<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">select</span> * <span class="keyword">from</span> T <span class="keyword">where</span> <span class="keyword">ID</span>=<span class="number">500</span>;</span><br></pre></td></tr></table></figure>
+
+<p>只需要查询这个表的 B+ tree ，然后将相应行读出来即可。</p>
+<figure class="highlight n1ql"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">select</span> * <span class="keyword">from</span> T <span class="keyword">where</span> k=<span class="number">5</span>;</span><br></pre></td></tr></table></figure>
+
+<p>通过普通索引查询，因为这个索引只记录了主键的信息，所以需要回表，即拿到主键后再依据主键的 B+ tree 将这个表的信息取出。</p>
+<p>为什么一般选取自增的主键？</p>
+<p>假设最大的 ID 是 700，现在需要插入一个 455 的 ID，那可能需要挪动 700 的位置，空出一个来，特殊情况可能会分页，因为这个页满了。成本较高，所以一般选取自增的主键。</p>
+<p>除了考虑性能外，还可以从存储空间的角度来看。假设表中确实有一个唯一字段，比如字符串类型的身份证号，那应该用身份证号做主键，还是用自增字段做主键呢？</p>
+<p>由于每个非主键索引的叶子节点上都是主键的值。如果用身份证号做主键，那么每个二级索引的叶子节点占用约 20 个字节，而如果用整型做主键，则只要 4 个字节，如果是长整型（bigint）则是 8 个字节。</p>
+<p><strong>显然，主键长度越小，普通索引的叶子节点就越小，普通索引占用的空间也就越小。</strong></p>
+<h3 id="覆盖索引"><a href="#覆盖索引" class="headerlink" title="覆盖索引"></a>覆盖索引</h3><p>若索引覆盖了我们的查询需求，就不需要回表的，大大节省时间。比方稍微改一下上面的 sql：</p>
+<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">select</span> <span class="keyword">ID</span> <span class="keyword">from</span> T <span class="keyword">where</span> k=<span class="number">5</span>;</span><br></pre></td></tr></table></figure>
+
+<p>因为 ID 已经存在二级索引中了，所以不需要回表，直接将 ID 返回即可。</p>
+<h3 id="最左前缀原则"><a href="#最左前缀原则" class="headerlink" title="最左前缀原则"></a>最左前缀原则</h3><p>如果为每一种查询都设计一个索引，索引是不是太多了。如果我现在要按照市民的身份证号去查他的家庭地址呢？虽然这个查询需求在业务中出现的概率不高，但总不能让它走全表扫描吧？反过来说，单独为一个不频繁的请求创建一个（身份证号，地址）的索引又感觉有点浪费。应该怎么做呢？</p>
+<p>用（name，age）这个联合索引来分析。</p>
+<p><img src="/images/image-20200620054932909.png" alt="image-20200620054932909"></p>
+<p>B+ 树这种索引结构，可以利用索引的“最左前缀”，来定位记录。</p>
+<p>当你的逻辑需求是查到所有名字是“张三”的人时，可以快速定位到 ID4，然后向后遍历得到所有需要的结果。如果你要查的是所有名字第一个字是“张”的人，你的 SQL 语句的条件是”where name like ‘张 %’”。这时，你也能够用上这个索引，查找到第一个符合条件的记录是 ID3，然后向后遍历，直到不满足条件为止。</p>
+<p>可以看到，不只是索引的全部定义，只要满足最左前缀，就可以利用索引来加速检索。这个最左前缀可以是联合索引的最左 N 个字段，也可以是字符串索引的最左 M 个字符。</p>
+<p>基于上面对最左前缀索引的说明，我们来讨论一个问题：<strong>在建立联合索引的时候，如何安排索引内的字段顺序。</strong></p>
+<p>这里我们的评估标准是，索引的复用能力。因为可以支持最左前缀，所以当已经有了 (a,b) 这个联合索引后，一般就不需要单独在 a 上建立索引了。因此，<strong>第一原则是，如果通过调整顺序，可以少维护一个索引，那么这个顺序往往就是需要优先考虑采用的。</strong></p>
+<h3 id="索引下推"><a href="#索引下推" class="headerlink" title="索引下推"></a>索引下推</h3><p>上一段我们说到满足最左前缀原则的时候，最左前缀可以用于在索引中定位记录。这时，你可能要问，那些不符合最左前缀的部分，会怎么样呢？</p>
+<figure class="highlight pgsql"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">mysql&gt; <span class="keyword">select</span> * <span class="keyword">from</span> tuser <span class="keyword">where</span> <span class="type">name</span> <span class="keyword">like</span> <span class="string">'张%'</span> <span class="keyword">and</span> age=<span class="number">10</span> <span class="keyword">and</span> ismale=<span class="number">1</span>;</span><br></pre></td></tr></table></figure>
+
+<p>你已经知道了前缀索引规则，所以这个语句在搜索索引树的时候，只能用 “张”，找到第一个满足条件的记录。</p>
+<p>当然，这还不错，总比全表扫描要好。然后呢？当然是判断其他条件是否满足。</p>
+<p>在 MySQL 5.6 之前，只能一个个回表。到主键索引上找出数据行，再对比字段值。而 MySQL 5.6 引入的索引下推优化（index condition pushdown)， 可以在索引遍历过程中，对索引中包含的字段先做判断，直接过滤掉不满足条件的记录，减少回表次数。</p>
+<h2 id="插曲"><a href="#插曲" class="headerlink" title="插曲"></a>插曲</h2><p>mysql 建表如下：</p>
+<figure class="highlight n1ql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">mysql&gt; <span class="keyword">create</span> TABLE <span class="keyword">if</span> <span class="keyword">not</span> <span class="keyword">exists</span> <span class="symbol">`test_index`</span> (</span><br><span class="line"><span class="symbol">`id`</span> int AUTO_INCREMENT,</span><br><span class="line"><span class="symbol">`a`</span> VARCHAR(<span class="number">100</span>),</span><br><span class="line"><span class="symbol">`b`</span> VARCHAR(<span class="number">100</span>),</span><br><span class="line"><span class="symbol">`c`</span> VARCHAR(<span class="number">100</span>),</span><br><span class="line"><span class="keyword">PRIMARY</span> <span class="keyword">KEY</span> ( <span class="symbol">`id`</span> ),</span><br><span class="line"><span class="keyword">key</span> (<span class="symbol">`a`</span>,<span class="symbol">`b`</span>,<span class="symbol">`c`</span>))ENGINE=InnoDB;</span><br></pre></td></tr></table></figure>
+
+<p>此时无论我怎么执行 a 、b、c 的操作，都用的 a 的索引。从下图的 type 和 key 可以看出来。</p>
+<p><img src="/images/image-20200620063223055.png" alt="image-20200620063223055"></p>
+<p>但是当我新加一列后：</p>
+<figure class="highlight pgsql"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">mysql&gt; <span class="keyword">alter</span> <span class="keyword">table</span> test_index <span class="keyword">add</span> <span class="keyword">column</span> d <span class="type">varchar</span>(<span class="number">20</span>) <span class="keyword">not</span> <span class="keyword">null</span>;</span><br></pre></td></tr></table></figure>
+
+<p>执行命令时，只有 a，并且是最左匹配或者相等的时候才会用到 a 的索引。原来是系统优化了，若没有 d，那么 select * 操作时，仅仅通过 a 的索引便可以将所有数据取到（覆盖索引），但是加上了 d 之后，通过 a 的索引不能取到了，所以优化器会使用 ALL 全部遍历。</p>
+<p><img src="/images/image-20200620063427359.png" alt="image-20200620063427359"></p>
+<p>有一篇文章关于最左匹配写的挺有意思的，但是笔者理解有个地方不对，可以细细品味：<a href="https://segmentfault.com/a/1190000015416513" target="_blank" rel="noopener">Mysql联合索引最左匹配原则</a></p>
+<p>再来看看之前有个同学给我发了这样一张表，可以看出这个表可以做什么优化吗？</p>
+<p><img src="/images/image-20200620070422847.png" alt="image-20200620070422847"></p>
+<p>个人理解：PRIMARY KEY 已经将 id 排序了，所以后面的 <code>UNIQUE KEY id_UNIQUE</code> 多余了。</p>
+<p>现在想想我之前在公司建表，简直就是可怕。。。每个表差不多最多有个唯一索引，老慢 sql 还不知道什么原因，只能加 limit，现在，如果我再写万元月薪那张表（百万级的数据量，也不大其实），我一定会加点索引。</p>
+<h2 id="引用过的-blog"><a href="#引用过的-blog" class="headerlink" title="引用过的 blog"></a>引用过的 blog</h2><p><a href="https://blog.csdn.net/login_sonata/article/details/75268075" target="_blank" rel="noopener">b树和b+树的区别</a></p>
+<p><a href="https://blog.csdn.net/qq_36827957/article/details/82877430" target="_blank" rel="noopener">https://blog.csdn.net/qq_36827957/article/details/82877430</a></p>
+<p><a href="https://www.cnblogs.com/tufujie/p/9413852.html" target="_blank" rel="noopener">https://www.cnblogs.com/tufujie/p/9413852.html</a></p>
+<p>etc.</p>
+
+    </div>
+
+    
+    
+    
+        
+
+<div>
+<ul class="post-copyright">
+  <li class="post-copyright-author">
+    <strong>本文作者： </strong>木叶
+  </li>
+  <li class="post-copyright-link">
+    <strong>本文链接：</strong>
+    <a href="https://hao336.cn/2020/06/19/%E6%95%B0%E6%8D%AE%E5%BA%93%E7%B4%A2%E5%BC%95/" title="数据库索引">https://hao336.cn/2020/06/19/数据库索引/</a>
+  </li>
+  <li class="post-copyright-license">
+    <strong>版权声明： </strong>本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/zh-CN" rel="noopener" target="_blank"><i class="fab fa-fw fa-creative-commons"></i>BY-NC-SA</a> 许可协议。转载请注明出处！
+  </li>
+</ul>
+</div>
+
+
+      <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/%E6%95%B0%E6%8D%AE%E5%BA%93/" rel="tag"># 数据库</a>
+          </div>
+
+        
+
+
+        
+    <div class="post-nav">
+      <div class="post-nav-item">
+    <a href="/2020/06/18/%E7%AB%8B%E4%B8%AAflag/" rel="prev" title="立个flag">
+      <i class="fa fa-chevron-left"></i> 立个flag
+    </a></div>
+      <div class="post-nav-item">
+    <a href="/2020/06/22/%E8%82%A1%E7%A5%A8%E5%AD%A6%E4%B9%A0-1/" rel="next" title="股票学习-1">
+      股票学习-1 <i class="fa fa-chevron-right"></i>
+    </a></div>
+    </div>
+      </footer>
+    
+  </article>
+  
+  
+  
+
+
+
+          </div>
+          
+    <div class="comments" id="valine-comments"></div>
+
+<script>
+  window.addEventListener('tabs:register', () => {
+    let { activeClass } = CONFIG.comments;
+    if (CONFIG.comments.storage) {
+      activeClass = localStorage.getItem('comments_active') || activeClass;
+    }
+    if (activeClass) {
+      let activeTab = document.querySelector(`a[href="#comment-${activeClass}"]`);
+      if (activeTab) {
+        activeTab.click();
+      }
+    }
+  });
+  if (CONFIG.comments.storage) {
+    window.addEventListener('tabs:click', event => {
+      if (!event.target.matches('.tabs-comment .tab-content .tab-pane')) return;
+      let commentClass = event.target.classList[1];
+      localStorage.setItem('comments_active', commentClass);
+    });
+  }
+</script>
+
+        </div>
+          
+  
+  <div class="toggle sidebar-toggle">
+    <span class="toggle-line toggle-line-first"></span>
+    <span class="toggle-line toggle-line-middle"></span>
+    <span class="toggle-line toggle-line-last"></span>
+  </div>
+
+  <aside class="sidebar">
+    <div class="sidebar-inner">
+
+      <ul class="sidebar-nav motion-element">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <!--noindex-->
+      <div class="post-toc-wrap sidebar-panel">
+          <div class="post-toc motion-element"><ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#索引的常见模型"><span class="nav-number">1.</span> <span class="nav-text">索引的常见模型</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#哈希"><span class="nav-number">1.1.</span> <span class="nav-text">哈希</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#有序数组"><span class="nav-number">1.2.</span> <span class="nav-text">有序数组</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#B-tree"><span class="nav-number">1.3.</span> <span class="nav-text">B tree</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#InnoDB-的索引模型"><span class="nav-number">2.</span> <span class="nav-text">InnoDB 的索引模型</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#覆盖索引"><span class="nav-number">2.1.</span> <span class="nav-text">覆盖索引</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#最左前缀原则"><span class="nav-number">2.2.</span> <span class="nav-text">最左前缀原则</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#索引下推"><span class="nav-number">2.3.</span> <span class="nav-text">索引下推</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#插曲"><span class="nav-number">3.</span> <span class="nav-text">插曲</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#引用过的-blog"><span class="nav-number">4.</span> <span class="nav-text">引用过的 blog</span></a></li></ol></div>
+      </div>
+      <!--/noindex-->
+
+      <div class="site-overview-wrap sidebar-panel">
+        <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name">木叶</p>
+  <div class="site-description" itemprop="description">记录自己成长、生活和变化</div>
+</div>
+<div class="site-state-wrap motion-element">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+          <a href="/archives">
+          <span class="site-state-item-count">12</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-tags">
+            <a href="/tags/">
+          
+        <span class="site-state-item-count">6</span>
+        <span class="site-state-item-name">标签</span></a>
+      </div>
+  </nav>
+</div>
+  <div class="links-of-author motion-element">
+      <span class="links-of-author-item">
+        <a href="https://github.com/ghorges" title="GitHub → https:&#x2F;&#x2F;github.com&#x2F;ghorges" rel="noopener" target="_blank"><i class="fab fa-github fa-fw"></i>GitHub</a>
+      </span>
+      <span class="links-of-author-item">
+        <a href="mailto:mayichenga@gmail.com" title="E-Mail → mailto:mayichenga@gmail.com" rel="noopener" target="_blank"><i class="fa fa-envelope fa-fw"></i>E-Mail</a>
+      </span>
+  </div>
+
+
+
+      </div>
+        <div class="back-to-top motion-element">
+          <i class="fa fa-arrow-up"></i>
+          <span>0%</span>
+        </div>
+
+    </div>
+  </aside>
+  <div id="sidebar-dimmer"></div>
+
+
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        
+
+        
+
+<div class="copyright">
+  
+  &copy; 
+  <span itemprop="copyrightYear">2022</span>
+  <span class="with-love">
+    <i class="fa fa-heart"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">muye</span>
+</div>
+
+        
+
+
+
+
+
+
+
+
+      </div>
+    </footer>
+  </div>
+
+  
+  <script src="/lib/anime.min.js"></script>
+  <script src="/lib/velocity/velocity.min.js"></script>
+  <script src="/lib/velocity/velocity.ui.min.js"></script>
+
+<script src="/js/utils.js"></script>
+
+<script src="/js/motion.js"></script>
+
+
+<script src="/js/schemes/pisces.js"></script>
+
+
+<script src="/js/next-boot.js"></script>
+
+
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+  
+
+
+<script>
+NexT.utils.loadComments(document.querySelector('#valine-comments'), () => {
+  NexT.utils.getScript('//unpkg.com/valine/dist/Valine.min.js', () => {
+    var GUEST = ['nick', 'mail', 'link'];
+    var guest = 'nick,mail,link';
+    guest = guest.split(',').filter(item => {
+      return GUEST.includes(item);
+    });
+    new Valine({
+      el         : '#valine-comments',
+      verify     : false,
+      notify     : false,
+      appId      : 'ekxvRu1kXvqXEgpw5jdtsvQq-gzGzoHsz',
+      appKey     : '0DwW3KORbtYml3EGcNh6Pwop',
+      placeholder: "有疑惑或心得都可以分享出来哦~",
+      avatar     : 'mm',
+      meta       : guest,
+      pageSize   : '10' || 10,
+      visitor    : false,
+      lang       : '' || 'zh-cn',
+      path       : location.pathname,
+      recordIP   : false,
+      serverURLs : ''
+    });
+  }, window.Valine);
+});
+</script>
+
+</body>
+</html>

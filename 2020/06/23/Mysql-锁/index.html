@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=2">
+<meta name="theme-color" content="#222">
+<meta name="generator" content="Hexo 4.2.1">
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/apple-touch-icon-next.png">
+  <link rel="mask-icon" href="/images/top-logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+<link rel="stylesheet" href="/lib/font-awesome/css/all.min.css">
+
+<script id="hexo-configurations">
+    var NexT = window.NexT || {};
+    var CONFIG = {"hostname":"hao336.cn","root":"/","scheme":"Pisces","version":"7.8.0","exturl":false,"sidebar":{"position":"left","display":"post","padding":18,"offset":12,"onmobile":false},"copycode":{"enable":true,"show_result":true,"style":"mac"},"back2top":{"enable":true,"sidebar":true,"scrollpercent":true},"bookmark":{"enable":false,"color":"#222","save":"auto"},"fancybox":false,"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":"valine","storage":true,"lazyload":false,"nav":null,"activeClass":"valine"},"algolia":{"hits":{"per_page":10},"labels":{"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}},"localsearch":{"enable":false,"trigger":"auto","top_n_per_article":1,"unescape":false,"preload":false},"motion":{"enable":true,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}}};
+  </script>
+
+  <meta name="description" content="Mysql 锁学习记录Mysql 锁设计的初衷是处理并发问题。根据加锁的范围，MySQL 里面的锁大致可以分成全局锁、表级锁和行锁三类。 由于自己基本没有使用过锁，对锁的理解不够深刻，大都仅限于概念，所以需要多多实践。 全局锁全局锁就是对整个数据库实例加锁。MySQL 提供了一个加全局读锁的方法，命令是： 1Flush tables with read lock;  当你需要让整个库处于只读状态的">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Mysql-锁">
+<meta property="og:url" content="https://hao336.cn/2020/06/23/Mysql-%E9%94%81/index.html">
+<meta property="og:site_name" content="木叶的博客">
+<meta property="og:description" content="Mysql 锁学习记录Mysql 锁设计的初衷是处理并发问题。根据加锁的范围，MySQL 里面的锁大致可以分成全局锁、表级锁和行锁三类。 由于自己基本没有使用过锁，对锁的理解不够深刻，大都仅限于概念，所以需要多多实践。 全局锁全局锁就是对整个数据库实例加锁。MySQL 提供了一个加全局读锁的方法，命令是： 1Flush tables with read lock;  当你需要让整个库处于只读状态的">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://hao336.cn/images/image-20200623001001448.png">
+<meta property="og:image" content="https://hao336.cn/images/image-20200623001019915.png">
+<meta property="og:image" content="https://hao336.cn/images/image-20200623010444277.png">
+<meta property="og:image" content="https://hao336.cn/images/image-20200623010635492.png">
+<meta property="og:image" content="https://hao336.cn/images/image-20200623010645615.png">
+<meta property="og:image" content="https://hao336.cn/images/image-20200623020526036.png">
+<meta property="og:image" content="https://hao336.cn/images/image-20200623025149479.png">
+<meta property="og:image" content="https://hao336.cn/images/image-20200623025227766.png">
+<meta property="article:published_time" content="2020-06-22T16:03:12.000Z">
+<meta property="article:modified_time" content="2022-08-26T16:04:57.651Z">
+<meta property="article:author" content="木叶">
+<meta property="article:tag" content="数据库">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://hao336.cn/images/image-20200623001001448.png">
+
+<link rel="canonical" href="https://hao336.cn/2020/06/23/Mysql-%E9%94%81/">
+
+
+<script id="page-configurations">
+  // https://hexo.io/docs/variables.html
+  CONFIG.page = {
+    sidebar: "",
+    isHome : false,
+    isPost : true,
+    lang   : 'zh-CN'
+  };
+</script>
+
+  <title>Mysql-锁 | 木叶的博客</title>
+  
+
+
+
+
+
+
+  <noscript>
+  <style>
+  .use-motion .brand,
+  .use-motion .menu-item,
+  .sidebar-inner,
+  .use-motion .post-block,
+  .use-motion .pagination,
+  .use-motion .comments,
+  .use-motion .post-header,
+  .use-motion .post-body,
+  .use-motion .collection-header { opacity: initial; }
+
+  .use-motion .site-title,
+  .use-motion .site-subtitle {
+    opacity: initial;
+    top: initial;
+  }
+
+  .use-motion .logo-line-before i { left: initial; }
+  .use-motion .logo-line-after i { right: initial; }
+  </style>
+</noscript>
+
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="container use-motion">
+    <div class="headband"></div>
+
+    <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏">
+      <span class="toggle-line toggle-line-first"></span>
+      <span class="toggle-line toggle-line-middle"></span>
+      <span class="toggle-line toggle-line-last"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <span class="logo-line-before"><i></i></span>
+      <h1 class="site-title">木叶的博客</h1>
+      <span class="logo-line-after"><i></i></span>
+    </a>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger">
+    </div>
+  </div>
+</div>
+
+
+
+
+<nav class="site-nav">
+  <ul id="menu" class="main-menu menu">
+        <li class="menu-item menu-item-home">
+
+    <a href="/" rel="section"><i class="fa fa-home fa-fw"></i>首页</a>
+
+  </li>
+        <li class="menu-item menu-item-about">
+
+    <a href="/about/" rel="section"><i class="fa fa-user fa-fw"></i>关于</a>
+
+  </li>
+        <li class="menu-item menu-item-tags">
+
+    <a href="/tags/" rel="section"><i class="fa fa-tags fa-fw"></i>标签</a>
+
+  </li>
+  </ul>
+</nav>
+
+
+
+
+</div>
+    </header>
+
+    
+
+
+    <main class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          
+
+          <div class="content post posts-expand">
+            
+
+    
+  
+  
+  <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="https://hao336.cn/2020/06/23/Mysql-%E9%94%81/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="木叶">
+      <meta itemprop="description" content="记录自己成长、生活和变化">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="木叶的博客">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          Mysql-锁
+        </h1>
+
+        <div class="post-meta">
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-calendar"></i>
+              </span>
+              <span class="post-meta-item-text">发表于</span>
+
+              <time title="创建时间：2020-06-23 00:03:12" itemprop="dateCreated datePublished" datetime="2020-06-23T00:03:12+08:00">2020-06-23</time>
+            </span>
+              <span class="post-meta-item">
+                <span class="post-meta-item-icon">
+                  <i class="far fa-calendar-check"></i>
+                </span>
+                <span class="post-meta-item-text">更新于</span>
+                <time title="修改时间：2022-08-27 00:04:57" itemprop="dateModified" datetime="2022-08-27T00:04:57+08:00">2022-08-27</time>
+              </span>
+
+          
+  
+  <span class="post-meta-item">
+    
+      <span class="post-meta-item-icon">
+        <i class="far fa-comment"></i>
+      </span>
+      <span class="post-meta-item-text">Valine：</span>
+    
+    <a title="valine" href="/2020/06/23/Mysql-%E9%94%81/#valine-comments" itemprop="discussionUrl">
+      <span class="post-comments-count valine-comment-count" data-xid="/2020/06/23/Mysql-%E9%94%81/" itemprop="commentCount"></span>
+    </a>
+  </span>
+  
+  
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+        <h2 id="Mysql-锁学习记录"><a href="#Mysql-锁学习记录" class="headerlink" title="Mysql 锁学习记录"></a>Mysql 锁学习记录</h2><p>Mysql 锁设计的初衷是处理并发问题。根据加锁的范围，MySQL 里面的锁大致可以分成全局锁、表级锁和行锁三类。</p>
+<p>由于自己基本没有使用过锁，对锁的理解不够深刻，大都仅限于概念，所以需要多多实践。</p>
+<h3 id="全局锁"><a href="#全局锁" class="headerlink" title="全局锁"></a>全局锁</h3><p>全局锁就是对整个数据库实例加锁。MySQL 提供了一个加全局读锁的方法，命令是：</p>
+<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">Flush</span> <span class="keyword">tables</span> <span class="keyword">with</span> <span class="keyword">read</span> <span class="keyword">lock</span>;</span><br></pre></td></tr></table></figure>
+
+<p>当你需要让整个库处于只读状态的时候，可以使用这个命令，之后其他线程的以下语句会被阻塞：数据更新语句（数据的增删改）、数据定义语句（包括建表、修改表结构等）和更新类事务的提交语句。</p>
+<a id="more"></a>
+
+<p>当我在第一个终端设置后，第二个终端增加一行会被阻塞。</p>
+<p><img src="/images/image-20200623001001448.png" alt="image-20200623001001448"></p>
+<p><img src="/images/image-20200623001019915.png" alt="image-20200623001019915"></p>
+<p>全局锁的典型使用场景是，做全库逻辑备份。也就是把整库每个表都 select 出来存成文本。</p>
+<p>这里说明一下物理备份和逻辑备份的区别（逻辑备份很少用到，之前说过的备份整个库就是指的逻辑备份，恢复到任意时间点就是使用逻辑备份+bin log）：</p>
+<ul>
+<li>物理备份：物理备份就是转储数据库物理文件（如数据文件、控制文件、归档日志文件等）。如 bin log 就是物理备份。</li>
+<li>逻辑备份：逻辑备份就是对数据库对象（如用户、表、存储过程等）利用工具进行导出工作，可以利用工具把逻辑备份文件导入到数据库。</li>
+</ul>
+<p>但是让整库都只读，听上去就很危险：</p>
+<ul>
+<li>如果你在主库上备份，那么在备份期间都不能执行更新，业务基本上就得停摆。</li>
+<li>如果你在从库上备份，那么备份期间从库不能执行主库同步过来的 bin log，会导致主从延迟。</li>
+</ul>
+<p>但是不备份也不行，其实还可以用 MVCC 的可重复读来备份，官方自带工具 mysqldump，但是有些引擎不支持 MVCC（InnoDB 支持），所以还是得用上面命令（现在基本都是 InnoDB，mysqldump 挺方便的）。</p>
+<p>既然要全库只读，为什么不使用 set global readonly=true 的方式呢？确实 readonly 方式也可以让全库进入只读状态，但我还是会建议你用 FTWRL 方式，主要有两个原因：</p>
+<ul>
+<li>一是，在有些系统中，readonly 的值会被用来做其他逻辑，比如用来判断一个库是主库还是备库。因此，修改 global 变量的方式影响面更大，不建议使用。</li>
+<li>二是，在异常处理机制上有差异。如果执行 FTWRL 命令之后由于客户端发生异常断开，那么 MySQL 会自动释放这个全局锁，整个库回到可以正常更新的状态。而将整个库设置为 readonly 之后，如果客户端发生异常，则数据库就会一直保持 readonly 状态，这样会导致整个库长时间处于不可写状态，风险较高。</li>
+</ul>
+<p>（补充：set global readonly=true 基本没见用过了，所以上面的了解就好。）</p>
+<h3 id="表级锁"><a href="#表级锁" class="headerlink" title="表级锁"></a>表级锁</h3><p>MySQL 里面表级别的锁有两种：一种是表锁，一种是元数据锁（meta data lock，MDL)。</p>
+<p>（表锁锁的是表里边的数据，元数据锁锁的是表的结构。）</p>
+<p>表锁的语法是 lock tables … read/write。与 FTWRL 类似，可以用 unlock tables 主动释放锁，也可以在客户端断开的时候自动释放。需要注意，lock tables 语法除了会限制别的线程的读写外，也限定了本线程接下来的操作对象。</p>
+<p>举个例子, 如果在某个线程 A 中执行 lock tables t1 read, t2 write; 这个语句，则其他线程写 t1、读写 t2 的语句都会被阻塞。同时，线程 A 在执行 unlock tables 之前，也只能执行读 t1、读写 t2 的操作。连写 t1 都不允许，自然也不能访问其他表。</p>
+<p>上面的意思是：如果对一个表使用了<code>lock tables * read</code>，那么此时限制这个线程只能读这个 tables（别的线程既可以读，也可以写这个 tables），但是不能读写别的 tables（就是限制到这一个中）；如果对一个表使用<code>lock tables * write</code>，那么这个线程只能读写这个 tables，别的线程不能读写这个 tables。</p>
+<p>使用<code>lock tables * read</code>：</p>
+<p><img src="/images/image-20200623010444277.png" alt="image-20200623010444277"></p>
+<p>使用<code>lock tables * write</code>：</p>
+<p><img src="/images/image-20200623010635492.png" alt="image-20200623010635492"></p>
+<p>此时第二个终端阻塞：</p>
+<p><img src="/images/image-20200623010645615.png" alt="image-20200623010645615"></p>
+<p><strong>在还没有出现更细粒度的锁的时候，表锁是最常用的处理并发的方式。</strong>而对于 InnoDB 这种支持行锁的引擎，一般不使用 lock tables 命令来控制并发，毕竟锁住整个表的影响面还是太大。</p>
+<p>另一类表级的锁是<strong>MDL（metadata lock)</strong>。MDL 不需要显式使用，在访问一个表的时候会被自动加上。MDL 的作用是，保证读写的正确性。你可以想象一下，如果一个查询正在遍历一个表中的数据，而执行期间另一个线程对这个表结构做变更，删了一列，那么查询线程拿到的结果跟表结构对不上，肯定是不行的。</p>
+<p>因此，在 MySQL 5.5 版本中引入了 MDL，当对一个表做增删改查操作的时候，加 MDL 读锁；当要对表做结构变更操作的时候，加 MDL 写锁。</p>
+<ul>
+<li>读锁之间不互斥，因此你可以有多个线程同时对一张表增删改查。</li>
+<li>读写锁之间、写锁之间是互斥的，用来保证变更表结构操作的安全性。因此，如果有两个线程要同时给一个表加字段，其中一个要等另一个执行完才能开始执行。</li>
+</ul>
+<p>虽然 MDL 锁是系统默认会加的，但却是你不能忽略的一个机制。比如下面这个例子，我经常看到有人掉到这个坑里：给一个小表加个字段，导致整个库挂了。</p>
+<p><img src="/images/image-20200623020526036.png" alt=""></p>
+<p>我们可以看到 session A 先启动，这时候会对表 t 加一个 MDL 读锁。由于 session B 需要的也是 MDL 读锁，因此可以正常执行。</p>
+<p>之后 session C 会被 blocked，是因为 session A 的 MDL 读锁还没有释放，而 session C 需要 MDL 写锁，因此只能被阻塞。</p>
+<p>如果只有 session C 自己被阻塞还没什么关系，但是之后所有要在表 t 上新申请 MDL 读锁的请求也会被 session C 阻塞。前面我们说了，所有对表的增删改查操作都需要先申请 MDL 读锁，就都被锁住，等于这个表现在完全不可读写了。</p>
+<p>如果某个表上的查询语句频繁，而且客户端有重试机制，也就是说超时后会再起一个新 session 再请求的话，这个库的线程很快就会爆满。</p>
+<p>你现在应该知道了，事务中的 MDL 锁，在语句执行开始时申请，但是语句结束后并不会马上释放，而会等到整个事务提交后再释放。</p>
+<p>如何解决？</p>
+<p>在 alter table 语句里面设定等待时间，如果在这个指定的等待时间里面能够拿到 MDL 写锁最好，拿不到也不要阻塞后面的业务语句，先放弃。之后开发人员或者 DBA 再通过重试命令重复这个过程。</p>
+<h3 id="行锁"><a href="#行锁" class="headerlink" title="行锁"></a>行锁</h3><p>行锁就是针对数据表中行记录的锁。比如事务 A 更新了一行，而这时候事务 B 也要更新同一行，则必须等事务 A 的操作完成后才能进行更新。</p>
+<p><strong>在 InnoDB 事务中，行锁是在需要的时候才加上的，但并不是不需要了就立刻释放，而是要等到事务结束时才释放。这个就是两阶段锁协议。</strong></p>
+<p>终端 1，开启事务不自动提交：</p>
+<p><img src="/images/image-20200623025149479.png" alt="image-20200623025149479"></p>
+<p>终端 2：</p>
+<p><img src="/images/image-20200623025227766.png" alt="image-20200623025227766"></p>
+<p>知道了这个设定，对我们使用事务有什么帮助呢？那就是，如果你的事务中需要锁多个行，要把最可能造成锁冲突、最可能影响并发度的锁尽量往后放（因为如果有锁冲突，这样会使锁冲突的时间最小）。</p>
+<p>但是如果此时还有死锁怎么办？</p>
+<p>简单说两种：</p>
+<ol>
+<li><p>消息队列，把相同行的更新放入队列中，一次只能执行一个。缺点是代码不好编写。</p>
+</li>
+<li><p>将一行改成逻辑上的多行来减少锁冲突。比如一行值记录总钱数，可以考虑分成 10 行来记录。缺点是需要有一些额外的逻辑。</p>
+</li>
+</ol>
+<p>想起之前的一个需求，leader 说这个需求涉及到钱，需要用行锁，当时我以为行锁很麻烦，就没有使用，而是多加了几层循环保证尽量落入数据库。现在回想起来，行锁会在需要的时候自动添加，我只需要保证这行数据尽可能的成功落入数据库就可以了。</p>
+<h2 id="引用过的-blog"><a href="#引用过的-blog" class="headerlink" title="引用过的 blog"></a>引用过的 blog</h2><p><a href="https://zhidao.baidu.com/question/58179691.html" target="_blank" rel="noopener">https://zhidao.baidu.com/question/58179691.html</a></p>
+
+    </div>
+
+    
+    
+    
+        
+
+<div>
+<ul class="post-copyright">
+  <li class="post-copyright-author">
+    <strong>本文作者： </strong>木叶
+  </li>
+  <li class="post-copyright-link">
+    <strong>本文链接：</strong>
+    <a href="https://hao336.cn/2020/06/23/Mysql-%E9%94%81/" title="Mysql-锁">https://hao336.cn/2020/06/23/Mysql-锁/</a>
+  </li>
+  <li class="post-copyright-license">
+    <strong>版权声明： </strong>本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/zh-CN" rel="noopener" target="_blank"><i class="fab fa-fw fa-creative-commons"></i>BY-NC-SA</a> 许可协议。转载请注明出处！
+  </li>
+</ul>
+</div>
+
+
+      <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/%E6%95%B0%E6%8D%AE%E5%BA%93/" rel="tag"># 数据库</a>
+          </div>
+
+        
+
+
+        
+    <div class="post-nav">
+      <div class="post-nav-item">
+    <a href="/2020/06/22/%E8%82%A1%E7%A5%A8%E5%AD%A6%E4%B9%A0-1/" rel="prev" title="股票学习-1">
+      <i class="fa fa-chevron-left"></i> 股票学习-1
+    </a></div>
+      <div class="post-nav-item">
+    <a href="/2020/06/30/nsq-1/" rel="next" title="nsq-1">
+      nsq-1 <i class="fa fa-chevron-right"></i>
+    </a></div>
+    </div>
+      </footer>
+    
+  </article>
+  
+  
+  
+
+
+
+          </div>
+          
+    <div class="comments" id="valine-comments"></div>
+
+<script>
+  window.addEventListener('tabs:register', () => {
+    let { activeClass } = CONFIG.comments;
+    if (CONFIG.comments.storage) {
+      activeClass = localStorage.getItem('comments_active') || activeClass;
+    }
+    if (activeClass) {
+      let activeTab = document.querySelector(`a[href="#comment-${activeClass}"]`);
+      if (activeTab) {
+        activeTab.click();
+      }
+    }
+  });
+  if (CONFIG.comments.storage) {
+    window.addEventListener('tabs:click', event => {
+      if (!event.target.matches('.tabs-comment .tab-content .tab-pane')) return;
+      let commentClass = event.target.classList[1];
+      localStorage.setItem('comments_active', commentClass);
+    });
+  }
+</script>
+
+        </div>
+          
+  
+  <div class="toggle sidebar-toggle">
+    <span class="toggle-line toggle-line-first"></span>
+    <span class="toggle-line toggle-line-middle"></span>
+    <span class="toggle-line toggle-line-last"></span>
+  </div>
+
+  <aside class="sidebar">
+    <div class="sidebar-inner">
+
+      <ul class="sidebar-nav motion-element">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <!--noindex-->
+      <div class="post-toc-wrap sidebar-panel">
+          <div class="post-toc motion-element"><ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#Mysql-锁学习记录"><span class="nav-number">1.</span> <span class="nav-text">Mysql 锁学习记录</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#全局锁"><span class="nav-number">1.1.</span> <span class="nav-text">全局锁</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#表级锁"><span class="nav-number">1.2.</span> <span class="nav-text">表级锁</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#行锁"><span class="nav-number">1.3.</span> <span class="nav-text">行锁</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#引用过的-blog"><span class="nav-number">2.</span> <span class="nav-text">引用过的 blog</span></a></li></ol></div>
+      </div>
+      <!--/noindex-->
+
+      <div class="site-overview-wrap sidebar-panel">
+        <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name">木叶</p>
+  <div class="site-description" itemprop="description">记录自己成长、生活和变化</div>
+</div>
+<div class="site-state-wrap motion-element">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+          <a href="/archives">
+          <span class="site-state-item-count">12</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-tags">
+            <a href="/tags/">
+          
+        <span class="site-state-item-count">6</span>
+        <span class="site-state-item-name">标签</span></a>
+      </div>
+  </nav>
+</div>
+  <div class="links-of-author motion-element">
+      <span class="links-of-author-item">
+        <a href="https://github.com/ghorges" title="GitHub → https:&#x2F;&#x2F;github.com&#x2F;ghorges" rel="noopener" target="_blank"><i class="fab fa-github fa-fw"></i>GitHub</a>
+      </span>
+      <span class="links-of-author-item">
+        <a href="mailto:mayichenga@gmail.com" title="E-Mail → mailto:mayichenga@gmail.com" rel="noopener" target="_blank"><i class="fa fa-envelope fa-fw"></i>E-Mail</a>
+      </span>
+  </div>
+
+
+
+      </div>
+        <div class="back-to-top motion-element">
+          <i class="fa fa-arrow-up"></i>
+          <span>0%</span>
+        </div>
+
+    </div>
+  </aside>
+  <div id="sidebar-dimmer"></div>
+
+
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        
+
+        
+
+<div class="copyright">
+  
+  &copy; 
+  <span itemprop="copyrightYear">2022</span>
+  <span class="with-love">
+    <i class="fa fa-heart"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">muye</span>
+</div>
+
+        
+
+
+
+
+
+
+
+
+      </div>
+    </footer>
+  </div>
+
+  
+  <script src="/lib/anime.min.js"></script>
+  <script src="/lib/velocity/velocity.min.js"></script>
+  <script src="/lib/velocity/velocity.ui.min.js"></script>
+
+<script src="/js/utils.js"></script>
+
+<script src="/js/motion.js"></script>
+
+
+<script src="/js/schemes/pisces.js"></script>
+
+
+<script src="/js/next-boot.js"></script>
+
+
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+  
+
+
+<script>
+NexT.utils.loadComments(document.querySelector('#valine-comments'), () => {
+  NexT.utils.getScript('//unpkg.com/valine/dist/Valine.min.js', () => {
+    var GUEST = ['nick', 'mail', 'link'];
+    var guest = 'nick,mail,link';
+    guest = guest.split(',').filter(item => {
+      return GUEST.includes(item);
+    });
+    new Valine({
+      el         : '#valine-comments',
+      verify     : false,
+      notify     : false,
+      appId      : 'ekxvRu1kXvqXEgpw5jdtsvQq-gzGzoHsz',
+      appKey     : '0DwW3KORbtYml3EGcNh6Pwop',
+      placeholder: "有疑惑或心得都可以分享出来哦~",
+      avatar     : 'mm',
+      meta       : guest,
+      pageSize   : '10' || 10,
+      visitor    : false,
+      lang       : '' || 'zh-cn',
+      path       : location.pathname,
+      recordIP   : false,
+      serverURLs : ''
+    });
+  }, window.Valine);
+});
+</script>
+
+</body>
+</html>

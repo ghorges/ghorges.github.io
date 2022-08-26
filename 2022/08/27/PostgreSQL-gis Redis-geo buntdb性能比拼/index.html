@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=2">
+<meta name="theme-color" content="#222">
+<meta name="generator" content="Hexo 4.2.1">
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/apple-touch-icon-next.png">
+  <link rel="mask-icon" href="/images/top-logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+<link rel="stylesheet" href="/lib/font-awesome/css/all.min.css">
+
+<script id="hexo-configurations">
+    var NexT = window.NexT || {};
+    var CONFIG = {"hostname":"hao336.cn","root":"/","scheme":"Pisces","version":"7.8.0","exturl":false,"sidebar":{"position":"left","display":"post","padding":18,"offset":12,"onmobile":false},"copycode":{"enable":true,"show_result":true,"style":"mac"},"back2top":{"enable":true,"sidebar":true,"scrollpercent":true},"bookmark":{"enable":false,"color":"#222","save":"auto"},"fancybox":false,"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":"valine","storage":true,"lazyload":false,"nav":null,"activeClass":"valine"},"algolia":{"hits":{"per_page":10},"labels":{"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}},"localsearch":{"enable":false,"trigger":"auto","top_n_per_article":1,"unescape":false,"preload":false},"motion":{"enable":true,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}}};
+  </script>
+
+  <meta name="description" content="PostgreSQL-gis Redis-geo BuntDB 性能比拼[toc] 听说 postgresql 中的 postGIS 在处理经纬度方面速率很快（gist 内部使用的是搜索树，geo 内部使用的是 geohash），所以比较一下，看看 8w 数据量的情况下，哪个快一点。 PostgreSQL（pg）搭建pg 添加 postGIS 扩展（postGIS 扩展很强大，建议深入学习）： 1">
+<meta property="og:type" content="article">
+<meta property="og:title" content="PostgreSQL-gis Redis-geo buntdb性能比拼">
+<meta property="og:url" content="https://hao336.cn/2022/08/27/PostgreSQL-gis%20Redis-geo%20buntdb%E6%80%A7%E8%83%BD%E6%AF%94%E6%8B%BC/index.html">
+<meta property="og:site_name" content="木叶的博客">
+<meta property="og:description" content="PostgreSQL-gis Redis-geo BuntDB 性能比拼[toc] 听说 postgresql 中的 postGIS 在处理经纬度方面速率很快（gist 内部使用的是搜索树，geo 内部使用的是 geohash），所以比较一下，看看 8w 数据量的情况下，哪个快一点。 PostgreSQL（pg）搭建pg 添加 postGIS 扩展（postGIS 扩展很强大，建议深入学习）： 1">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://hao336.cn/images/image-20210817114444052.png">
+<meta property="og:image" content="https://hao336.cn/images/image-20210817143533916.png">
+<meta property="og:image" content="https://hao336.cn/images/image-20210817143741972.png">
+<meta property="og:image" content="https://hao336.cn/images/image-20210818100222214.png">
+<meta property="og:image" content="https://hao336.cn/images/image-20210818102932595.png">
+<meta property="og:image" content="https://hao336.cn/images/image-20210818102944551.png">
+<meta property="og:image" content="https://hao336.cn/images/image-20210818174836108.png">
+<meta property="og:image" content="https://hao336.cn/images/image-20210818163758572.png">
+<meta property="og:image" content="https://hao336.cn/images/image-20210823152207687.png">
+<meta property="og:image" content="https://hao336.cn/images/image-20210823173230927.png">
+<meta property="og:image" content="https://hao336.cn/images/image-20210823174023430.png">
+<meta property="og:image" content="https://hao336.cn/images/image-20210823174313700.png">
+<meta property="og:image" content="https://hao336.cn/images/image-20210818183504875.png">
+<meta property="og:image" content="https://hao336.cn/images/image-20210818183850138.png">
+<meta property="og:image" content="https://hao336.cn/images/image-20210823175837929.png">
+<meta property="og:image" content="https://hao336.cn/images/image-20210823175955289.png">
+<meta property="og:image" content="https://hao336.cn/images/image-20210823180146496.png">
+<meta property="article:published_time" content="2022-08-26T16:04:57.651Z">
+<meta property="article:modified_time" content="2022-08-26T16:04:57.652Z">
+<meta property="article:author" content="木叶">
+<meta property="article:tag" content="go">
+<meta property="article:tag" content="分布式">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://hao336.cn/images/image-20210817114444052.png">
+
+<link rel="canonical" href="https://hao336.cn/2022/08/27/PostgreSQL-gis%20Redis-geo%20buntdb%E6%80%A7%E8%83%BD%E6%AF%94%E6%8B%BC/">
+
+
+<script id="page-configurations">
+  // https://hexo.io/docs/variables.html
+  CONFIG.page = {
+    sidebar: "",
+    isHome : false,
+    isPost : true,
+    lang   : 'zh-CN'
+  };
+</script>
+
+  <title>PostgreSQL-gis Redis-geo buntdb性能比拼 | 木叶的博客</title>
+  
+
+
+
+
+
+
+  <noscript>
+  <style>
+  .use-motion .brand,
+  .use-motion .menu-item,
+  .sidebar-inner,
+  .use-motion .post-block,
+  .use-motion .pagination,
+  .use-motion .comments,
+  .use-motion .post-header,
+  .use-motion .post-body,
+  .use-motion .collection-header { opacity: initial; }
+
+  .use-motion .site-title,
+  .use-motion .site-subtitle {
+    opacity: initial;
+    top: initial;
+  }
+
+  .use-motion .logo-line-before i { left: initial; }
+  .use-motion .logo-line-after i { right: initial; }
+  </style>
+</noscript>
+
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="container use-motion">
+    <div class="headband"></div>
+
+    <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏">
+      <span class="toggle-line toggle-line-first"></span>
+      <span class="toggle-line toggle-line-middle"></span>
+      <span class="toggle-line toggle-line-last"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <span class="logo-line-before"><i></i></span>
+      <h1 class="site-title">木叶的博客</h1>
+      <span class="logo-line-after"><i></i></span>
+    </a>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger">
+    </div>
+  </div>
+</div>
+
+
+
+
+<nav class="site-nav">
+  <ul id="menu" class="main-menu menu">
+        <li class="menu-item menu-item-home">
+
+    <a href="/" rel="section"><i class="fa fa-home fa-fw"></i>首页</a>
+
+  </li>
+        <li class="menu-item menu-item-about">
+
+    <a href="/about/" rel="section"><i class="fa fa-user fa-fw"></i>关于</a>
+
+  </li>
+        <li class="menu-item menu-item-tags">
+
+    <a href="/tags/" rel="section"><i class="fa fa-tags fa-fw"></i>标签</a>
+
+  </li>
+  </ul>
+</nav>
+
+
+
+
+</div>
+    </header>
+
+    
+
+
+    <main class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          
+
+          <div class="content post posts-expand">
+            
+
+    
+  
+  
+  <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="https://hao336.cn/2022/08/27/PostgreSQL-gis%20Redis-geo%20buntdb%E6%80%A7%E8%83%BD%E6%AF%94%E6%8B%BC/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="木叶">
+      <meta itemprop="description" content="记录自己成长、生活和变化">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="木叶的博客">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          PostgreSQL-gis Redis-geo buntdb性能比拼
+        </h1>
+
+        <div class="post-meta">
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-calendar"></i>
+              </span>
+              <span class="post-meta-item-text">发表于</span>
+
+              <time title="创建时间：2022-08-27 00:04:57" itemprop="dateCreated datePublished" datetime="2022-08-27T00:04:57+08:00">2022-08-27</time>
+            </span>
+
+          
+  
+  <span class="post-meta-item">
+    
+      <span class="post-meta-item-icon">
+        <i class="far fa-comment"></i>
+      </span>
+      <span class="post-meta-item-text">Valine：</span>
+    
+    <a title="valine" href="/2022/08/27/PostgreSQL-gis%20Redis-geo%20buntdb%E6%80%A7%E8%83%BD%E6%AF%94%E6%8B%BC/#valine-comments" itemprop="discussionUrl">
+      <span class="post-comments-count valine-comment-count" data-xid="/2022/08/27/PostgreSQL-gis%20Redis-geo%20buntdb%E6%80%A7%E8%83%BD%E6%AF%94%E6%8B%BC/" itemprop="commentCount"></span>
+    </a>
+  </span>
+  
+  
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+        <h1 id="PostgreSQL-gis-Redis-geo-BuntDB-性能比拼"><a href="#PostgreSQL-gis-Redis-geo-BuntDB-性能比拼" class="headerlink" title="PostgreSQL-gis Redis-geo BuntDB 性能比拼"></a>PostgreSQL-gis Redis-geo BuntDB 性能比拼</h1><p>[toc]</p>
+<p>听说 postgresql 中的 postGIS 在处理经纬度方面速率很快（gist 内部使用的是搜索树，geo 内部使用的是 geohash），所以比较一下，看看 8w 数据量的情况下，哪个快一点。</p>
+<h2 id="PostgreSQL（pg）搭建"><a href="#PostgreSQL（pg）搭建" class="headerlink" title="PostgreSQL（pg）搭建"></a>PostgreSQL（pg）搭建</h2><p>pg 添加 postGIS 扩展（postGIS 扩展很强大，建议深入学习）：</p>
+<figure class="highlight n1ql"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">create</span> extension postgis;</span><br></pre></td></tr></table></figure>
+
+<p>附：Mac 安装 PostGIS 流程：<a href="https://morphocode.com/how-to-install-postgis-on-mac-os-x/" target="_blank" rel="noopener">link</a></p>
+<p>pg 创建测试表：</p>
+<figure class="highlight pgsql"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">postgres=# <span class="keyword">create</span> <span class="keyword">table</span> gis_idx_test(id <span class="type">int</span>, <span class="keyword">info</span> <span class="type">text</span>, pos geometry) <span class="keyword">with</span> (autovacuum_enabled=<span class="keyword">off</span>,toast.autovacuum_enabled=<span class="keyword">off</span>);</span><br></pre></td></tr></table></figure>
+
+<p>pg 创建索引（使用 gist 的原因是：gist 比 RTree 更强大，虽然插入数据慢，但是检索数据快，适合存储空间的数据）：</p>
+<figure class="highlight n1ql"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">create</span> <span class="keyword">index</span> idx_gis_idx_test <span class="keyword">on</span> gis_idx_test <span class="keyword">using</span> gist (pos);</span><br></pre></td></tr></table></figure>
+
+<a id="more"></a>
+
+<p><img src="/images/image-20210817114444052.png" alt="image-20210817114444052"></p>
+<p>插入数据（我这里使用的是 gorm 插入数据，因为 gorm 不支持 geometry 数据格式，所以只能裸写 sql 了^_^; 尴尬）：</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">func</span> <span class="title">InsertPostgresWithIdAndValue</span><span class="params">(id <span class="keyword">int</span>, longitude, latitude <span class="keyword">float64</span>)</span></span> &#123;</span><br><span class="line">	<span class="comment">// ST_GeomFromText('POINT(%f %f)', 4326)) 格式化为经纬度的</span></span><br><span class="line">	<span class="comment">// pg 是先精度 后纬度 eg：ST_GeomFromText('POINT(120 19) 表示经度120 纬度 19</span></span><br><span class="line">	<span class="comment">// INSERT INTO gis_idx_test (id, pos) VALUES (234, ST_GeomFromText('POINT(115 -7.3)', 4326));</span></span><br><span class="line">	str := fmt.Sprintf(<span class="string">"INSERT INTO gis_idx_test (id, pos) VALUES (%d, ST_GeomFromText('POINT(%f %f)', 4326))"</span>, id, longitude, latitude)</span><br><span class="line">	db.Exec(str)</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>共 85318 条数据，其实算是比较少了。</p>
+<h2 id="pg-redis-buntdb-性能比较（单条命令时间查询）"><a href="#pg-redis-buntdb-性能比较（单条命令时间查询）" class="headerlink" title="pg  redis buntdb 性能比较（单条命令时间查询）"></a>pg  redis buntdb 性能比较（单条命令时间查询）</h2><h3 id="pg-查询"><a href="#pg-查询" class="headerlink" title="pg 查询"></a>pg 查询</h3><figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">SELECT</span> * <span class="keyword">FROM</span> gis_idx_test  <span class="keyword">WHERE</span> ST_DWithin(pos :: geography, ST_GeomFromText ( <span class="string">'POINT(112 -7)'</span>, <span class="number">4326</span> ) :: geography, <span class="number">200000</span>) <span class="keyword">IS</span> <span class="literal">TRUE</span>;</span><br></pre></td></tr></table></figure>
+
+<p>使用<code>explain (analyze,buffers)</code>即可查看 pg 查询时间</p>
+<p><img src="/images/image-20210817143533916.png" alt="image-20210817143533916"></p>
+<h3 id="redis-设置-slowlog-并查询时间"><a href="#redis-设置-slowlog-并查询时间" class="headerlink" title="redis 设置 slowlog 并查询时间"></a>redis 设置 slowlog 并查询时间</h3><figure class="highlight angelscript"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">redis查询命令：georadius outlet <span class="number">112</span> <span class="number">-7</span> <span class="number">200</span> km withdist</span><br></pre></td></tr></table></figure>
+
+<p><img src="/images/image-20210817143741972.png" alt="image-20210817143741972"></p>
+<p> 明显可以看出查询单次数据，redis 的性能是要远高于 pg 的，大概差距为 5 倍（101ms&amp;19.2ms）。</p>
+<p><a href="https://www.fujieace.com/redis/ml/slowlog.html" target="_blank" rel="noopener">slowlog 使用</a></p>
+<h3 id="buntdb-查询"><a href="#buntdb-查询" class="headerlink" title="buntdb 查询"></a>buntdb 查询</h3><p><a href="https://github.com/tidwall/buntdb" target="_blank" rel="noopener">buntdb 链接</a>。如果对数据库感兴趣，不妨先学学这个，麻雀虽小，五脏俱全：</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">func</span> <span class="title">GetBuntdb</span><span class="params">()</span> <span class="params">(index <span class="keyword">int</span>)</span></span> &#123;</span><br><span class="line">	buntDb.View(<span class="function"><span class="keyword">func</span><span class="params">(tx *buntdb.Tx)</span> <span class="title">error</span></span> &#123;</span><br><span class="line">		<span class="comment">// 使用该Nearby函数按从最近到最远的顺序获取所有位置：</span></span><br><span class="line">			tx.Nearby(<span class="string">"fleet"</span>, <span class="string">"[106 -6]"</span>, <span class="function"><span class="keyword">func</span><span class="params">(key, val <span class="keyword">string</span>, dist <span class="keyword">float64</span>)</span> <span class="title">bool</span></span> &#123;</span><br><span class="line">				index++</span><br><span class="line">				<span class="comment">// println(key, val)</span></span><br><span class="line">				<span class="keyword">return</span> <span class="literal">true</span></span><br><span class="line">			&#125;)</span><br><span class="line">		<span class="keyword">return</span> <span class="literal">nil</span></span><br><span class="line">	&#125;)</span><br><span class="line">	<span class="keyword">return</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>同样也是 8w 多条数据，虽然 buntdb 全盘扫描，但是速度不慢，40ms。</p>
+<p><img src="/images/image-20210818100222214.png" alt="image-20210818100222214"></p>
+<h2 id="使用-wrk-压测比较-Qps"><a href="#使用-wrk-压测比较-Qps" class="headerlink" title="使用 wrk 压测比较 Qps"></a>使用 wrk 压测比较 Qps</h2><h3 id="首先测试保证-redis-amp-pg-执行后的结果是一致的"><a href="#首先测试保证-redis-amp-pg-执行后的结果是一致的" class="headerlink" title="首先测试保证 redis&amp;pg 执行后的结果是一致的"></a>首先测试保证 redis&amp;pg 执行后的结果是一致的</h3><h4 id="redis"><a href="#redis" class="headerlink" title="redis"></a>redis</h4><p><img src="/images/image-20210818102932595.png" alt="image-20210818102932595"></p>
+<h4 id="pg"><a href="#pg" class="headerlink" title="pg"></a>pg</h4><p><img src="/images/image-20210818102944551.png" alt="image-20210818102944551"></p>
+<p>它两差2个差别其实是因为这两个数据库的存储数据的方式不同，pg 的会更加准确。</p>
+<p>（其实在这里明显能看出来，只执行一个明显 redis 速度快的多，因为 redis 是基于内存的…而且数据量小，发挥不出 pg 的优势，hash 数据量大了执行速度就慢了，但平衡多叉树的效率O（n*logn），速度不怎么变。）</p>
+<h3 id="每次-conn-一个连接进行压测"><a href="#每次-conn-一个连接进行压测" class="headerlink" title="每次 conn 一个连接进行压测"></a>每次 conn 一个连接进行压测</h3><figure class="highlight pgsql"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">wrk -t12 -c200 -d90s http://<span class="number">127.0</span><span class="number">.0</span><span class="number">.1</span>/pg_wrk</span><br></pre></td></tr></table></figure>
+
+<p>修改 pg 最大链接数：<a href="https://juejin.cn/post/6844904201747709966" target="_blank" rel="noopener">link</a></p>
+<p><img src="/images/image-20210818174836108.png" alt="image-20210818174836108"></p>
+<h3 id="对测试的数据进行加锁压测"><a href="#对测试的数据进行加锁压测" class="headerlink" title="对测试的数据进行加锁压测"></a>对测试的数据进行加锁压测</h3><p>初始化好连接的进行加锁压测，保证同时只有一路执行，防止开多个 client 影响速率。</p>
+<figure class="highlight pgsql"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">wrk -t12 -c200 -d90s http://<span class="number">127.0</span><span class="number">.0</span><span class="number">.1</span>/pg_wrk</span><br></pre></td></tr></table></figure>
+
+<p><img src="/images/image-20210818163758572.png" alt="image-20210818163758572"></p>
+<h3 id="使用连接池压测，模拟真实环境"><a href="#使用连接池压测，模拟真实环境" class="headerlink" title="使用连接池压测，模拟真实环境"></a>使用连接池压测，模拟真实环境</h3><p>通过上述结果可以肯定，redis 的速度还是会快一些的。</p>
+<h3 id="buntdb-测试"><a href="#buntdb-测试" class="headerlink" title="buntdb 测试"></a>buntdb 测试</h3><h4 id="基础测试"><a href="#基础测试" class="headerlink" title="基础测试"></a>基础测试</h4><p>可以看出，在 8w 数据量下，速度是 redis 的两倍，虽然 buntdb 是全局扫描的，但是速度并不差。</p>
+<p><img src="/images/image-20210823152207687.png" alt="image-20210823152207687"></p>
+<h4 id="修改源码后测试"><a href="#修改源码后测试" class="headerlink" title="修改源码后测试"></a>修改源码后测试</h4><p>上面的瓶颈主要还是全盘扫描，所以是不是可以不全盘扫描，而直接修改源码只返回部分结果呢，答案是肯定的！</p>
+<p>修改如下源码：<a href="https://github.com/ghorges/rtred/blob/master/rtree.go" target="_blank" rel="noopener">修改代码链接</a></p>
+<p><img src="/images/image-20210823173230927.png" alt="image-20210823173230927"></p>
+<p>测试修改的是否可用</p>
+<p>使用命令测试下面函数（buntdb 数据量也是 85318 条）</p>
+<figure class="highlight go"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 命令：go test -run TestGetBuntdb -v</span></span><br><span class="line"></span><br><span class="line"><span class="comment">// test 函数</span></span><br><span class="line"><span class="function"><span class="keyword">func</span> <span class="title">TestGetBuntdb</span><span class="params">(t *testing.T)</span></span> &#123;</span><br><span class="line">	i := GetBuntdb()</span><br><span class="line">	fmt.Println(i)</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="comment">// 测试这个函数：</span></span><br><span class="line"><span class="function"><span class="keyword">func</span> <span class="title">GetBuntdb</span><span class="params">()</span> <span class="params">(index <span class="keyword">int</span>)</span></span> &#123;</span><br><span class="line">	buntDb.View(<span class="function"><span class="keyword">func</span><span class="params">(tx *buntdb.Tx)</span> <span class="title">error</span></span> &#123;</span><br><span class="line">		<span class="comment">// 使用该Nearby函数按从最近到最远的顺序获取所有位置：</span></span><br><span class="line">			tx.Nearby(<span class="string">"fleet"</span>, <span class="string">"[106 -6]"</span>, <span class="number">13733</span>, <span class="function"><span class="keyword">func</span><span class="params">(key, val <span class="keyword">string</span>, dist <span class="keyword">float64</span>)</span> <span class="title">bool</span></span> &#123;</span><br><span class="line">				index++</span><br><span class="line">				<span class="keyword">return</span> <span class="literal">true</span></span><br><span class="line">			&#125;)</span><br><span class="line">		<span class="keyword">return</span> <span class="literal">nil</span></span><br><span class="line">	&#125;)</span><br><span class="line">	<span class="keyword">return</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><img src="/images/image-20210823174023430.png" alt="image-20210823174023430"></p>
+<p>共捞到 17644 条信息，速度是 10ms，很快了。</p>
+<p>使用 wrk 进行压力测试如下：</p>
+<p><img src="/images/image-20210823174313700.png" alt="image-20210823174313700"></p>
+<p>速度是 buntdb 全盘扫描的 2.5 倍，是 redis 的 5 倍。</p>
+<h4 id="原始代码单线程执行（和-redis-加锁压测一样）"><a href="#原始代码单线程执行（和-redis-加锁压测一样）" class="headerlink" title="原始代码单线程执行（和 redis 加锁压测一样）"></a>原始代码单线程执行（和 redis 加锁压测一样）</h4><figure class="highlight groovy"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">wrk -t1 -c2 -d30s <span class="string">http:</span><span class="comment">//127.0.0.1/buntdb_lock_wrk</span></span><br></pre></td></tr></table></figure>
+
+<figure class="highlight angelscript"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">Running <span class="number">30</span>s test @ http:<span class="comment">//127.0.0.1/buntdb_lock_wrk</span></span><br><span class="line">  <span class="number">1</span> threads <span class="keyword">and</span> <span class="number">2</span> connections</span><br><span class="line">  Thread Stats   Avg      Stdev     Max   +/- Stdev</span><br><span class="line">    Latency    <span class="number">77.49</span>ms    <span class="number">2.75</span>ms  <span class="number">92.21</span>ms   <span class="number">82.30</span>%</span><br><span class="line">    Req/Sec    <span class="number">25.56</span>      <span class="number">4.94</span>    <span class="number">30.00</span>     <span class="number">61.49</span>%</span><br><span class="line">  <span class="number">774</span> requests <span class="keyword">in</span> <span class="number">30.03</span>s, <span class="number">56.69</span>KB read</span><br><span class="line">Requests/sec:     <span class="number">25.77</span></span><br><span class="line">Transfer/sec:      <span class="number">1.89</span>KB</span><br></pre></td></tr></table></figure>
+
+<p>qps 比并发执行小了 5 倍。</p>
+<h4 id="修改代码后单线程执行（同上）"><a href="#修改代码后单线程执行（同上）" class="headerlink" title="修改代码后单线程执行（同上）"></a>修改代码后单线程执行（同上）</h4><figure class="highlight groovy"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">wrk -t12 -c200 -d90s <span class="string">http:</span><span class="comment">//127.0.0.1/buntdb_lock_wrk</span></span><br></pre></td></tr></table></figure>
+
+<figure class="highlight yaml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="string">Running</span> <span class="string">2m</span> <span class="string">test</span> <span class="string">@</span> <span class="string">http://127.0.0.1/buntdb_lock_wrk</span></span><br><span class="line">  <span class="number">12</span> <span class="string">threads</span> <span class="string">and</span> <span class="number">200</span> <span class="string">connections</span></span><br><span class="line">  <span class="string">Thread</span> <span class="string">Stats</span>   <span class="string">Avg</span>      <span class="string">Stdev</span>     <span class="string">Max</span>   <span class="string">+/-</span> <span class="string">Stdev</span></span><br><span class="line">    <span class="string">Latency</span>     <span class="number">1.</span><span class="string">56s</span>   <span class="number">195.</span><span class="string">04ms</span>   <span class="number">1.</span><span class="string">89s</span>    <span class="number">71.96</span><span class="string">%</span></span><br><span class="line">    <span class="string">Req/Sec</span>    <span class="number">16.28</span>     <span class="number">10.13</span>    <span class="number">70.00</span>     <span class="number">72.14</span><span class="string">%</span></span><br><span class="line">  <span class="number">10946</span> <span class="string">requests</span> <span class="string">in</span> <span class="number">1.</span><span class="string">50m,</span> <span class="number">801.</span><span class="string">71KB</span> <span class="string">read</span></span><br><span class="line">  <span class="attr">Socket errors:</span> <span class="string">connect</span> <span class="number">0</span><span class="string">,</span> <span class="string">read</span> <span class="number">51</span><span class="string">,</span> <span class="string">write</span> <span class="number">0</span><span class="string">,</span> <span class="string">timeout</span> <span class="number">0</span></span><br><span class="line"><span class="attr">Requests/sec:</span>    <span class="number">121.51</span></span><br><span class="line"><span class="attr">Transfer/sec:</span>      <span class="number">8.</span><span class="string">90KB</span></span><br></pre></td></tr></table></figure>
+
+<p>同上，速度慢很多了。</p>
+<p><strong>所以可以得出 buntdb 相比 redis-geo 的优势在于</strong></p>
+<ul>
+<li>buntdb读写锁保证可以同时执行，而 redis 单线程</li>
+</ul>
+<h3 id="系统资源占用分析"><a href="#系统资源占用分析" class="headerlink" title="系统资源占用分析"></a>系统资源占用分析</h3><p>使用 Instruments 进行系统资源占用分析。<a href="/images/pg_redis_buntdb.tar.gz">trance 文件，需要自提</a></p>
+<h4 id="pg-1"><a href="#pg-1" class="headerlink" title="pg"></a>pg</h4><p>cpu 占用率平均达到了 1200%，太高了。</p>
+<p><img src="/images/image-20210818183504875.png" alt="image-20210818183504875"></p>
+<h4 id="redis-1"><a href="#redis-1" class="headerlink" title="redis"></a>redis</h4><p>cpu 占用率低多了，最高才 500%。</p>
+<p><img src="/images/image-20210818183850138.png" alt="image-20210818183850138"></p>
+<h4 id="buntdb"><a href="#buntdb" class="headerlink" title="buntdb"></a>buntdb</h4><p>cpu占用率很高，毕竟速度快。</p>
+<p><img src="/images/image-20210823175837929.png" alt="image-20210823175837929"></p>
+<p>内存使用了大约 13 GB。</p>
+<p><img src="/images/image-20210823175955289.png" alt="image-20210823175955289"></p>
+<p>磁盘没怎么用，毕竟 buntdb 文件没多少数据。网络同理（不截图了，费空间）。</p>
+<p><img src="/images/image-20210823180146496.png" alt="image-20210823180146496"></p>
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>在处理地理位置方面，内存型数据库的速度明显优于持久化的数据库。但是一般内存型数据库取到排序后，还需要从持久化数据库取所有数据（这个一般是根据 id 取的，费时间少，但是还是需要列入考虑范围）。</p>
+<p>1w-100w 的数据量，获取某点临近位置，使用 buntdb 的速度明显优于 redis（高的数据量没测过，我也不清楚哪个快，但是怀疑 buntdb 快）。</p>
+<p>为什么 buntdb 比 redis 快（排名依次减弱）？</p>
+<ul>
+<li>buntdb 使用的是 R-tree，不需要每次 hash 地理位置，而 redis hashgeo 时使用 hash 来计算的（上节已经讲过，redis hashgeo 占总时间的 20%+），所以 buntdb 速度快。</li>
+<li>buntdb 在使用时是读写锁，可以并发执行，并消耗大量 cpu 资源来并发计算。但是众所周知，redis 是单线程（其实可以给 redis 加个线程池，或者多开几个 redis 进行测试，redis 性能还能再快很多，可以看到上面 redis cpu 资源都没怎么费，但是这个测试没必要）。</li>
+<li>redis 需要将拿到的数据传输给 server（1.5分钟 5000w 的数据量），相对也是很费资源的。</li>
+</ul>
+<p>优化：</p>
+<p>虽然 buntdb 很快，但如果数据量过大，buntdb 速度也是会下降的。</p>
+<p>所以思考是否可以首先通过 hashgeo （4-7次 hashgeo）过滤获取一个大的范围，然后将不同的范围的数据，存储到不同的 buntdb 中（看业务，4-7次 hashgeo 分的相当粗，除非特别需求，大部分业务不需要考虑<a href="https://blog.csdn.net/dokd229933/article/details/47021515" target="_blank" rel="noopener">临近问题</a>）。取的时候先 hashgeo，然后从对应的 buntdb 中取就可以了。<a href="https://github.com/digoal/blog/blob/master/201708/20170824_02.md?spm=a2c6h.12873639.0.0.571b3a45ryu43L&file=20170824_02.md#st_distancespheroid%E4%BA%8C%E9%87%8D%E8%BF%87%E6%BB%A4" target="_blank" rel="noopener">思路链接</a></p>
+<p><strong>本质上就是分片，不过是分片方式是 geohash 而已</strong></p>
+<h2 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h2><p><a href="https://gis.stackexchange.com/questions/108557/advantages-of-r-trees-in-comparison-to-geohashes" target="_blank" rel="noopener">https://gis.stackexchange.com/questions/108557/advantages-of-r-trees-in-comparison-to-geohashes</a></p>
+<p><a href="http://www.postgis.org/" target="_blank" rel="noopener">http://www.postgis.org/</a></p>
+<p><a href="https://www.oschina.net/p/postgis?hmsr=aladdin1e1" target="_blank" rel="noopener">https://www.oschina.net/p/postgis?hmsr=aladdin1e1</a></p>
+<p><a href="http://www.jandrewrogers.com/2015/03/02/geospatial-databases-are-hard/" target="_blank" rel="noopener">http://www.jandrewrogers.com/2015/03/02/geospatial-databases-are-hard/</a></p>
+<p><a href="https://stackoverflow.com/questions/12492065/how-does-mongodb-implement-its-spatial-indexes/12494924" target="_blank" rel="noopener">https://stackoverflow.com/questions/12492065/how-does-mongodb-implement-its-spatial-indexes/12494924</a></p>
+<p><a href="https://developer.aliyun.com/article/590349" target="_blank" rel="noopener">https://developer.aliyun.com/article/590349</a></p>
+<p><a href="https://github.com/digoal/blog/blob/master/201206/20120607_01.md?spm=a2c6h.12873639.0.0.18615c10LWHEEn&amp;file=20120607_01.md" target="_blank" rel="noopener">https://github.com/digoal/blog/blob/master/201206/20120607_01.md?spm=a2c6h.12873639.0.0.18615c10LWHEEn&amp;file=20120607_01.md</a></p>
+<p><a href="https://developer.aliyun.com/article/179209" target="_blank" rel="noopener">https://developer.aliyun.com/article/179209</a></p>
+<p><a href="https://github.com/digoal/blog/blob/master/201708/20170824_02.md?spm=a2c6h.12873639.0.0.571b3a45ryu43L&amp;file=20170824_02.md" target="_blank" rel="noopener">https://github.com/digoal/blog/blob/master/201708/20170824_02.md?spm=a2c6h.12873639.0.0.571b3a45ryu43L&amp;file=20170824_02.md</a></p>
+<p><a href="https://morphocode.com/how-to-install-postgis-on-mac-os-x/" target="_blank" rel="noopener">https://morphocode.com/how-to-install-postgis-on-mac-os-x/</a></p>
+<p><a href="http://www.mathcs.emory.edu/~cheung/Courses/554/Syllabus/3-index/R-tree.html" target="_blank" rel="noopener">http://www.mathcs.emory.edu/~cheung/Courses/554/Syllabus/3-index/R-tree.html</a></p>
+<p><a href="https://github.com/digoal/blog/blob/master/201206/20120607_01.md?spm=a2c6h.12873639.0.0.18615c10twAzJ0&amp;file=20120607_01.md" target="_blank" rel="noopener">https://github.com/digoal/blog/blob/master/201206/20120607_01.md?spm=a2c6h.12873639.0.0.18615c10twAzJ0&amp;file=20120607_01.md</a></p>
+<p><a href="https://github.com/digoal/blog/blob/master/201708/20170820_01.md" target="_blank" rel="noopener">https://github.com/digoal/blog/blob/master/201708/20170820_01.md</a></p>
+<p><a href="https://blog.csdn.net/pg_hgdb/article/details/82460225" target="_blank" rel="noopener">https://blog.csdn.net/pg_hgdb/article/details/82460225</a></p>
+<p><a href="https://www.fujieace.com/redis/ml/slowlog.html" target="_blank" rel="noopener">https://www.fujieace.com/redis/ml/slowlog.html</a></p>
+
+    </div>
+
+    
+    
+    
+        
+
+<div>
+<ul class="post-copyright">
+  <li class="post-copyright-author">
+    <strong>本文作者： </strong>木叶
+  </li>
+  <li class="post-copyright-link">
+    <strong>本文链接：</strong>
+    <a href="https://hao336.cn/2022/08/27/PostgreSQL-gis%20Redis-geo%20buntdb%E6%80%A7%E8%83%BD%E6%AF%94%E6%8B%BC/" title="PostgreSQL-gis Redis-geo buntdb性能比拼">https://hao336.cn/2022/08/27/PostgreSQL-gis Redis-geo buntdb性能比拼/</a>
+  </li>
+  <li class="post-copyright-license">
+    <strong>版权声明： </strong>本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/zh-CN" rel="noopener" target="_blank"><i class="fab fa-fw fa-creative-commons"></i>BY-NC-SA</a> 许可协议。转载请注明出处！
+  </li>
+</ul>
+</div>
+
+
+      <footer class="post-footer">
+
+        
+
+
+        
+    <div class="post-nav">
+      <div class="post-nav-item">
+    <a href="/2020/07/02/nsq%E6%BA%90%E7%A0%81%E5%88%A8%E6%9E%90/" rel="prev" title="nsq源码刨析">
+      <i class="fa fa-chevron-left"></i> nsq源码刨析
+    </a></div>
+      <div class="post-nav-item">
+    <a href="/2022/08/27/redis%20geo%20%E6%80%A7%E8%83%BD%E5%88%86%E6%9E%90%E5%8F%8A%E5%AF%B9%E9%97%AE%E9%A2%98%E7%9A%84%E6%80%9D%E8%80%83/" rel="next" title="redis geo 性能分析及对问题的思考">
+      redis geo 性能分析及对问题的思考 <i class="fa fa-chevron-right"></i>
+    </a></div>
+    </div>
+      </footer>
+    
+  </article>
+  
+  
+  
+
+
+
+          </div>
+          
+    <div class="comments" id="valine-comments"></div>
+
+<script>
+  window.addEventListener('tabs:register', () => {
+    let { activeClass } = CONFIG.comments;
+    if (CONFIG.comments.storage) {
+      activeClass = localStorage.getItem('comments_active') || activeClass;
+    }
+    if (activeClass) {
+      let activeTab = document.querySelector(`a[href="#comment-${activeClass}"]`);
+      if (activeTab) {
+        activeTab.click();
+      }
+    }
+  });
+  if (CONFIG.comments.storage) {
+    window.addEventListener('tabs:click', event => {
+      if (!event.target.matches('.tabs-comment .tab-content .tab-pane')) return;
+      let commentClass = event.target.classList[1];
+      localStorage.setItem('comments_active', commentClass);
+    });
+  }
+</script>
+
+        </div>
+          
+  
+  <div class="toggle sidebar-toggle">
+    <span class="toggle-line toggle-line-first"></span>
+    <span class="toggle-line toggle-line-middle"></span>
+    <span class="toggle-line toggle-line-last"></span>
+  </div>
+
+  <aside class="sidebar">
+    <div class="sidebar-inner">
+
+      <ul class="sidebar-nav motion-element">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <!--noindex-->
+      <div class="post-toc-wrap sidebar-panel">
+          <div class="post-toc motion-element"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#PostgreSQL-gis-Redis-geo-BuntDB-性能比拼"><span class="nav-number">1.</span> <span class="nav-text">PostgreSQL-gis Redis-geo BuntDB 性能比拼</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#PostgreSQL（pg）搭建"><span class="nav-number">1.1.</span> <span class="nav-text">PostgreSQL（pg）搭建</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#pg-redis-buntdb-性能比较（单条命令时间查询）"><span class="nav-number">1.2.</span> <span class="nav-text">pg  redis buntdb 性能比较（单条命令时间查询）</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#pg-查询"><span class="nav-number">1.2.1.</span> <span class="nav-text">pg 查询</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#redis-设置-slowlog-并查询时间"><span class="nav-number">1.2.2.</span> <span class="nav-text">redis 设置 slowlog 并查询时间</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#buntdb-查询"><span class="nav-number">1.2.3.</span> <span class="nav-text">buntdb 查询</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#使用-wrk-压测比较-Qps"><span class="nav-number">1.3.</span> <span class="nav-text">使用 wrk 压测比较 Qps</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#首先测试保证-redis-amp-pg-执行后的结果是一致的"><span class="nav-number">1.3.1.</span> <span class="nav-text">首先测试保证 redis&amp;pg 执行后的结果是一致的</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#redis"><span class="nav-number">1.3.1.1.</span> <span class="nav-text">redis</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#pg"><span class="nav-number">1.3.1.2.</span> <span class="nav-text">pg</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#每次-conn-一个连接进行压测"><span class="nav-number">1.3.2.</span> <span class="nav-text">每次 conn 一个连接进行压测</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#对测试的数据进行加锁压测"><span class="nav-number">1.3.3.</span> <span class="nav-text">对测试的数据进行加锁压测</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#使用连接池压测，模拟真实环境"><span class="nav-number">1.3.4.</span> <span class="nav-text">使用连接池压测，模拟真实环境</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#buntdb-测试"><span class="nav-number">1.3.5.</span> <span class="nav-text">buntdb 测试</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#基础测试"><span class="nav-number">1.3.5.1.</span> <span class="nav-text">基础测试</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#修改源码后测试"><span class="nav-number">1.3.5.2.</span> <span class="nav-text">修改源码后测试</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#原始代码单线程执行（和-redis-加锁压测一样）"><span class="nav-number">1.3.5.3.</span> <span class="nav-text">原始代码单线程执行（和 redis 加锁压测一样）</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#修改代码后单线程执行（同上）"><span class="nav-number">1.3.5.4.</span> <span class="nav-text">修改代码后单线程执行（同上）</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#系统资源占用分析"><span class="nav-number">1.3.6.</span> <span class="nav-text">系统资源占用分析</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#pg-1"><span class="nav-number">1.3.6.1.</span> <span class="nav-text">pg</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#redis-1"><span class="nav-number">1.3.6.2.</span> <span class="nav-text">redis</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#buntdb"><span class="nav-number">1.3.6.3.</span> <span class="nav-text">buntdb</span></a></li></ol></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#总结"><span class="nav-number">1.4.</span> <span class="nav-text">总结</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#参考"><span class="nav-number">1.5.</span> <span class="nav-text">参考</span></a></li></ol></li></ol></div>
+      </div>
+      <!--/noindex-->
+
+      <div class="site-overview-wrap sidebar-panel">
+        <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name">木叶</p>
+  <div class="site-description" itemprop="description">记录自己成长、生活和变化</div>
+</div>
+<div class="site-state-wrap motion-element">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+          <a href="/archives">
+          <span class="site-state-item-count">12</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-tags">
+            <a href="/tags/">
+          
+        <span class="site-state-item-count">6</span>
+        <span class="site-state-item-name">标签</span></a>
+      </div>
+  </nav>
+</div>
+  <div class="links-of-author motion-element">
+      <span class="links-of-author-item">
+        <a href="https://github.com/ghorges" title="GitHub → https:&#x2F;&#x2F;github.com&#x2F;ghorges" rel="noopener" target="_blank"><i class="fab fa-github fa-fw"></i>GitHub</a>
+      </span>
+      <span class="links-of-author-item">
+        <a href="mailto:mayichenga@gmail.com" title="E-Mail → mailto:mayichenga@gmail.com" rel="noopener" target="_blank"><i class="fa fa-envelope fa-fw"></i>E-Mail</a>
+      </span>
+  </div>
+
+
+
+      </div>
+        <div class="back-to-top motion-element">
+          <i class="fa fa-arrow-up"></i>
+          <span>0%</span>
+        </div>
+
+    </div>
+  </aside>
+  <div id="sidebar-dimmer"></div>
+
+
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        
+
+        
+
+<div class="copyright">
+  
+  &copy; 
+  <span itemprop="copyrightYear">2022</span>
+  <span class="with-love">
+    <i class="fa fa-heart"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">muye</span>
+</div>
+
+        
+
+
+
+
+
+
+
+
+      </div>
+    </footer>
+  </div>
+
+  
+  <script src="/lib/anime.min.js"></script>
+  <script src="/lib/velocity/velocity.min.js"></script>
+  <script src="/lib/velocity/velocity.ui.min.js"></script>
+
+<script src="/js/utils.js"></script>
+
+<script src="/js/motion.js"></script>
+
+
+<script src="/js/schemes/pisces.js"></script>
+
+
+<script src="/js/next-boot.js"></script>
+
+
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+  
+
+
+<script>
+NexT.utils.loadComments(document.querySelector('#valine-comments'), () => {
+  NexT.utils.getScript('//unpkg.com/valine/dist/Valine.min.js', () => {
+    var GUEST = ['nick', 'mail', 'link'];
+    var guest = 'nick,mail,link';
+    guest = guest.split(',').filter(item => {
+      return GUEST.includes(item);
+    });
+    new Valine({
+      el         : '#valine-comments',
+      verify     : false,
+      notify     : false,
+      appId      : 'ekxvRu1kXvqXEgpw5jdtsvQq-gzGzoHsz',
+      appKey     : '0DwW3KORbtYml3EGcNh6Pwop',
+      placeholder: "有疑惑或心得都可以分享出来哦~",
+      avatar     : 'mm',
+      meta       : guest,
+      pageSize   : '10' || 10,
+      visitor    : false,
+      lang       : '' || 'zh-cn',
+      path       : location.pathname,
+      recordIP   : false,
+      serverURLs : ''
+    });
+  }, window.Valine);
+});
+</script>
+
+</body>
+</html>

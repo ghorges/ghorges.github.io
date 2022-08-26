@@ -1,0 +1,547 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=2">
+<meta name="theme-color" content="#222">
+<meta name="generator" content="Hexo 4.2.1">
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/apple-touch-icon-next.png">
+  <link rel="mask-icon" href="/images/top-logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+<link rel="stylesheet" href="/lib/font-awesome/css/all.min.css">
+
+<script id="hexo-configurations">
+    var NexT = window.NexT || {};
+    var CONFIG = {"hostname":"hao336.cn","root":"/","scheme":"Pisces","version":"7.8.0","exturl":false,"sidebar":{"position":"left","display":"post","padding":18,"offset":12,"onmobile":false},"copycode":{"enable":true,"show_result":true,"style":"mac"},"back2top":{"enable":true,"sidebar":true,"scrollpercent":true},"bookmark":{"enable":false,"color":"#222","save":"auto"},"fancybox":false,"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":"valine","storage":true,"lazyload":false,"nav":null,"activeClass":"valine"},"algolia":{"hits":{"per_page":10},"labels":{"input_placeholder":"Search for Posts","hits_empty":"We didn't find any results for the search: ${query}","hits_stats":"${hits} results found in ${time} ms"}},"localsearch":{"enable":false,"trigger":"auto","top_n_per_article":1,"unescape":false,"preload":false},"motion":{"enable":true,"async":false,"transition":{"post_block":"fadeIn","post_header":"slideDownIn","post_body":"slideDownIn","coll_header":"slideLeftIn","sidebar":"slideUpIn"}}};
+  </script>
+
+  <meta name="description" content="redis geo 性能分析及对问题的思考[toc] 对 redis 进行压力测试将数据存入 redis 后（共 85318 条有效数据），通过压测工具redis-benchmark对 redis 进行压测。 1redis-benchmark -h 127.0.0.1 -p 6379 -c 50 -n 1000 -q georadius outlet 112 -7 200 km withdist">
+<meta property="og:type" content="article">
+<meta property="og:title" content="redis geo 性能分析及对问题的思考">
+<meta property="og:url" content="https://hao336.cn/2022/08/27/redis%20geo%20%E6%80%A7%E8%83%BD%E5%88%86%E6%9E%90%E5%8F%8A%E5%AF%B9%E9%97%AE%E9%A2%98%E7%9A%84%E6%80%9D%E8%80%83/index.html">
+<meta property="og:site_name" content="木叶的博客">
+<meta property="og:description" content="redis geo 性能分析及对问题的思考[toc] 对 redis 进行压力测试将数据存入 redis 后（共 85318 条有效数据），通过压测工具redis-benchmark对 redis 进行压测。 1redis-benchmark -h 127.0.0.1 -p 6379 -c 50 -n 1000 -q georadius outlet 112 -7 200 km withdist">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://hao336.cn/images/image-20210726174917453.png">
+<meta property="og:image" content="https://hao336.cn/images/image-20210727140357358.png">
+<meta property="og:image" content="https://hao336.cn/images/image-20210727142503006.png">
+<meta property="og:image" content="https://hao336.cn/images/image-20210803183207488.png">
+<meta property="og:image" content="https://hao336.cn/images/image-20210803184459474.png">
+<meta property="og:image" content="https://hao336.cn/images/image-20210803185901434.png">
+<meta property="og:image" content="https://hao336.cn/images/image-20210804102350648.png">
+<meta property="og:image" content="https://hao336.cn/images/image-20210804105423195.png">
+<meta property="og:image" content="https://hao336.cn/images/image-20210804111059575.png">
+<meta property="og:image" content="https://hao336.cn/images/image-20210804113401364.png">
+<meta property="article:published_time" content="2022-08-26T16:04:57.652Z">
+<meta property="article:modified_time" content="2022-08-26T16:04:57.652Z">
+<meta property="article:author" content="木叶">
+<meta property="article:tag" content="go">
+<meta property="article:tag" content="分布式">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://hao336.cn/images/image-20210726174917453.png">
+
+<link rel="canonical" href="https://hao336.cn/2022/08/27/redis%20geo%20%E6%80%A7%E8%83%BD%E5%88%86%E6%9E%90%E5%8F%8A%E5%AF%B9%E9%97%AE%E9%A2%98%E7%9A%84%E6%80%9D%E8%80%83/">
+
+
+<script id="page-configurations">
+  // https://hexo.io/docs/variables.html
+  CONFIG.page = {
+    sidebar: "",
+    isHome : false,
+    isPost : true,
+    lang   : 'zh-CN'
+  };
+</script>
+
+  <title>redis geo 性能分析及对问题的思考 | 木叶的博客</title>
+  
+
+
+
+
+
+
+  <noscript>
+  <style>
+  .use-motion .brand,
+  .use-motion .menu-item,
+  .sidebar-inner,
+  .use-motion .post-block,
+  .use-motion .pagination,
+  .use-motion .comments,
+  .use-motion .post-header,
+  .use-motion .post-body,
+  .use-motion .collection-header { opacity: initial; }
+
+  .use-motion .site-title,
+  .use-motion .site-subtitle {
+    opacity: initial;
+    top: initial;
+  }
+
+  .use-motion .logo-line-before i { left: initial; }
+  .use-motion .logo-line-after i { right: initial; }
+  </style>
+</noscript>
+
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="container use-motion">
+    <div class="headband"></div>
+
+    <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏">
+      <span class="toggle-line toggle-line-first"></span>
+      <span class="toggle-line toggle-line-middle"></span>
+      <span class="toggle-line toggle-line-last"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <span class="logo-line-before"><i></i></span>
+      <h1 class="site-title">木叶的博客</h1>
+      <span class="logo-line-after"><i></i></span>
+    </a>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger">
+    </div>
+  </div>
+</div>
+
+
+
+
+<nav class="site-nav">
+  <ul id="menu" class="main-menu menu">
+        <li class="menu-item menu-item-home">
+
+    <a href="/" rel="section"><i class="fa fa-home fa-fw"></i>首页</a>
+
+  </li>
+        <li class="menu-item menu-item-about">
+
+    <a href="/about/" rel="section"><i class="fa fa-user fa-fw"></i>关于</a>
+
+  </li>
+        <li class="menu-item menu-item-tags">
+
+    <a href="/tags/" rel="section"><i class="fa fa-tags fa-fw"></i>标签</a>
+
+  </li>
+  </ul>
+</nav>
+
+
+
+
+</div>
+    </header>
+
+    
+
+
+    <main class="main">
+      <div class="main-inner">
+        <div class="content-wrap">
+          
+
+          <div class="content post posts-expand">
+            
+
+    
+  
+  
+  <article itemscope itemtype="http://schema.org/Article" class="post-block" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="https://hao336.cn/2022/08/27/redis%20geo%20%E6%80%A7%E8%83%BD%E5%88%86%E6%9E%90%E5%8F%8A%E5%AF%B9%E9%97%AE%E9%A2%98%E7%9A%84%E6%80%9D%E8%80%83/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="木叶">
+      <meta itemprop="description" content="记录自己成长、生活和变化">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="木叶的博客">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          redis geo 性能分析及对问题的思考
+        </h1>
+
+        <div class="post-meta">
+            <span class="post-meta-item">
+              <span class="post-meta-item-icon">
+                <i class="far fa-calendar"></i>
+              </span>
+              <span class="post-meta-item-text">发表于</span>
+
+              <time title="创建时间：2022-08-27 00:04:57" itemprop="dateCreated datePublished" datetime="2022-08-27T00:04:57+08:00">2022-08-27</time>
+            </span>
+
+          
+  
+  <span class="post-meta-item">
+    
+      <span class="post-meta-item-icon">
+        <i class="far fa-comment"></i>
+      </span>
+      <span class="post-meta-item-text">Valine：</span>
+    
+    <a title="valine" href="/2022/08/27/redis%20geo%20%E6%80%A7%E8%83%BD%E5%88%86%E6%9E%90%E5%8F%8A%E5%AF%B9%E9%97%AE%E9%A2%98%E7%9A%84%E6%80%9D%E8%80%83/#valine-comments" itemprop="discussionUrl">
+      <span class="post-comments-count valine-comment-count" data-xid="/2022/08/27/redis%20geo%20%E6%80%A7%E8%83%BD%E5%88%86%E6%9E%90%E5%8F%8A%E5%AF%B9%E9%97%AE%E9%A2%98%E7%9A%84%E6%80%9D%E8%80%83/" itemprop="commentCount"></span>
+    </a>
+  </span>
+  
+  
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+
+      
+        <h1 id="redis-geo-性能分析及对问题的思考"><a href="#redis-geo-性能分析及对问题的思考" class="headerlink" title="redis geo 性能分析及对问题的思考"></a>redis geo 性能分析及对问题的思考</h1><p>[toc]</p>
+<h2 id="对-redis-进行压力测试"><a href="#对-redis-进行压力测试" class="headerlink" title="对 redis 进行压力测试"></a>对 redis 进行压力测试</h2><p>将数据存入 redis 后（共 85318 条有效数据），通过压测工具<code>redis-benchmark</code>对 redis 进行压测。</p>
+<figure class="highlight angelscript"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">redis-benchmark -h <span class="number">127.0</span><span class="number">.0</span><span class="number">.1</span> -p <span class="number">6379</span> -c <span class="number">50</span> -n <span class="number">1000</span> -q georadius outlet <span class="number">112</span> <span class="number">-7</span> <span class="number">200</span> km withdist</span><br></pre></td></tr></table></figure>
+
+<p>并发数为 50，每个并发发送 1000 个请求，结果如下：</p>
+<p><img src="/images/image-20210726174917453.png" alt="image-20210726174917453"></p>
+<p><strong>注：</strong>本文所用电脑为 MacBook Pro (16-inch, 2019)，cpu 为：Intel(R) Core(TM) i7-9750H CPU @ 2.60GHz，内存为 16 g。</p>
+<a id="more"></a>
+
+<h2 id="对-redis-进行满载压力分析"><a href="#对-redis-进行满载压力分析" class="headerlink" title="对 redis 进行满载压力分析"></a>对 redis 进行满载压力分析</h2><p>使用 Instruments 对 redis 进行满负荷时分析，压力测试命令如下：</p>
+<figure class="highlight angelscript"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">redis-benchmark -h <span class="number">127.0</span><span class="number">.0</span><span class="number">.1</span> -p <span class="number">6379</span> -c <span class="number">100</span> -n <span class="number">50000</span> -q georadius outlet <span class="number">112</span> <span class="number">-7</span> <span class="number">200</span> km withdist</span><br></pre></td></tr></table></figure>
+
+<p> 说几点建议：</p>
+<ul>
+<li>多开几个压测的线程，多个线程并发执行，尽可能的去打满 redis，以遍更直观的看到 redis 的性能瓶颈。</li>
+<li>有条件的可以使用两个本地机器去模拟（必须为局域网，<del>当然两根网线连着更好</del>，非局域网可能会有网速对 redis 性能的影响），使用同一台电脑开启 redis 服务和进行压测时，压测开很多线程，一直发数据也是很消耗 cpu 资源的（这个东西属于 unstable，看内核调度，是不可控的）。所以为了控制变量，让 redis 能更好的发挥效率，推荐使用两个机器。</li>
+</ul>
+<p>满负荷执行两分钟的结果如下（<a href="/images/redis-test.trace.tar.gz">性能分析的 trace 文件，需要的自提</a>）：</p>
+<p><img src="/images/image-20210727140357358.png" alt="image-20210727140357358"></p>
+<p>注：强烈推荐使用 Linux 系统的 perf 对 redis 进行性能分析，虽然 mac 分析的很全面，但是生成不了火焰图导致结果很不直观，需要手动一条一条找数据。好在数据量不大，因此逐个分析吧（<a href="https://schani.wordpress.com/2012/11/16/flame-graphs-for-instruments/" target="_blank" rel="noopener">这是网上仅有的 mac 生成火焰图的方式链接，但是我没有测试成功</a>）。</p>
+<h3 id="georadiusGeneric"><a href="#georadiusGeneric" class="headerlink" title="georadiusGeneric"></a>georadiusGeneric</h3><p><img src="/images/image-20210727142503006.png" alt="image-20210727142503006"></p>
+<p>可以看出 97.9% 的时间都花费在了这个函数上，这个函数其实就是一个回调，执行 georadius 的命令。</p>
+<figure class="highlight reasonml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">/* GEORADIUS wrapper function. */</span></span><br><span class="line">void georadius<span class="constructor">Command(<span class="params">client</span> <span class="operator">*</span><span class="params">c</span>)</span> &#123;</span><br><span class="line">    georadius<span class="constructor">Generic(<span class="params">c</span>, 1, RADIUS_COORDS)</span>;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>这个命令下共有 3 个函数费时间，下面依次进行分析。</p>
+<p><img src="/images/image-20210803183207488.png" alt="image-20210803183207488"></p>
+<h4 id="membersOfGeoHashBox"><a href="#membersOfGeoHashBox" class="headerlink" title="membersOfGeoHashBox"></a>membersOfGeoHashBox</h4><p>在这个函数中可以看到最费时间的 4 个函数（没按层级划分，只找到最费时的），分别为：</p>
+<ul>
+<li><code>geohashGetDistance</code></li>
+<li><code>decodeGeohash</code></li>
+<li><code>zmalloc_usable</code></li>
+<li><code>zfree</code></li>
+</ul>
+<p><img src="/images/image-20210803184459474.png" alt="image-20210803184459474"></p>
+<h5 id="geohashGetDistance"><a href="#geohashGetDistance" class="headerlink" title="geohashGetDistance"></a>geohashGetDistance</h5><p>这个函数是计算两点见经纬度的距离的，最费时间的函数是 asin 函数。</p>
+<figure class="highlight reasonml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 计算两点之间的距离</span></span><br><span class="line"><span class="comment">/* Calculate distance using haversine great circle distance formula. */</span></span><br><span class="line">double geohash<span class="constructor">GetDistance(<span class="params">double</span> <span class="params">lon1d</span>, <span class="params">double</span> <span class="params">lat1d</span>, <span class="params">double</span> <span class="params">lon2d</span>, <span class="params">double</span> <span class="params">lat2d</span>)</span> &#123;</span><br><span class="line">    double lat1r, lon1r, lat2r, lon2r, u, v;</span><br><span class="line">    lat1r = deg<span class="constructor">_rad(<span class="params">lat1d</span>)</span>;</span><br><span class="line">    lon1r = deg<span class="constructor">_rad(<span class="params">lon1d</span>)</span>;</span><br><span class="line">    lat2r = deg<span class="constructor">_rad(<span class="params">lat2d</span>)</span>;</span><br><span class="line">    lon2r = deg<span class="constructor">_rad(<span class="params">lon2d</span>)</span>;</span><br><span class="line">    u = sin((lat2r - lat1r)<span class="operator"> / </span><span class="number">2</span>);</span><br><span class="line">    v = sin((lon2r - lon1r)<span class="operator"> / </span><span class="number">2</span>);</span><br><span class="line">    return <span class="number">2.0</span><span class="operator"> * </span>EARTH_RADIUS_IN_METERS *</span><br><span class="line">           asin(sqrt(u<span class="operator"> * </span>u + cos(lat1r)<span class="operator"> * </span>cos(lat2r)<span class="operator"> * </span>v<span class="operator"> * </span>v));</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>美团解决这个计算的方案：<a href="https://tech.meituan.com/2014/09/05/lucene-distance.html" target="_blank" rel="noopener">link</a>，这个方案的问题是如果两点之间距离远，那么误差会比较大。</p>
+<p>下图为耗时图：</p>
+<p><img src="/images/image-20210803185901434.png" alt="image-20210803185901434"></p>
+<h5 id="decodeGeohash"><a href="#decodeGeohash" class="headerlink" title="decodeGeohash"></a>decodeGeohash</h5><p>这个函数中有两个函数费时间，分别耗时：2.4% 和 2.4%，耗时原因也是因为大量的计算。但是这个计算目前没有很好的解决方案。</p>
+<ol>
+<li><strong>geohashDecode</strong>：</li>
+</ol>
+<p>这里最费时间的是将 hash 的经纬度还原的函数，将这个经纬度夹在一个很小的范围内。这个很小的范围就近似于这个点（因为 decode 也是这么算的，还原也得这还原）。</p>
+<figure class="highlight arduino"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">int</span> <span class="title">geohashDecode</span><span class="params">(<span class="keyword">const</span> GeoHashRange long_range, <span class="keyword">const</span> GeoHashRange lat_range,</span></span></span><br><span class="line"><span class="function"><span class="params">                   <span class="keyword">const</span> GeoHashBits hash, GeoHashArea *area)</span> </span>&#123;</span><br><span class="line">    <span class="keyword">if</span> (HASHISZERO(hash) || <span class="literal">NULL</span> == area || RANGEISZERO(lat_range) ||</span><br><span class="line">        RANGEISZERO(long_range)) &#123;</span><br><span class="line">        <span class="keyword">return</span> <span class="number">0</span>;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    area-&gt;hash = hash;</span><br><span class="line">    <span class="keyword">uint8_t</span> <span class="built_in">step</span> = hash.<span class="built_in">step</span>;</span><br><span class="line">    <span class="keyword">uint64_t</span> hash_sep = deinterleave64(hash.bits); <span class="comment">/* hash = [LAT][LONG] */</span></span><br><span class="line"></span><br><span class="line">    <span class="keyword">double</span> lat_scale = lat_range.<span class="built_in">max</span> - lat_range.<span class="built_in">min</span>;</span><br><span class="line">    <span class="keyword">double</span> long_scale = long_range.<span class="built_in">max</span> - long_range.<span class="built_in">min</span>;</span><br><span class="line"></span><br><span class="line">    <span class="comment">// 分开经纬度，deinterleave64 返回的是 return x | (y &lt;&lt; 32);</span></span><br><span class="line">    <span class="comment">// 所以通过 uint32_t 就可以分开</span></span><br><span class="line">    <span class="keyword">uint32_t</span> ilato = hash_sep;       <span class="comment">/* get lat part of deinterleaved hash */</span></span><br><span class="line">    <span class="keyword">uint32_t</span> ilono = hash_sep &gt;&gt; <span class="number">32</span>; <span class="comment">/* shift over to get long part of hash */</span></span><br><span class="line"></span><br><span class="line">    <span class="comment">// 这里是获取将这个点夹在中间的位置</span></span><br><span class="line">    <span class="comment">/* ---------------------------</span></span><br><span class="line"><span class="comment">       | *   |        |           |</span></span><br><span class="line"><span class="comment">       |     |        |           |</span></span><br><span class="line"><span class="comment">       ---------------------------</span></span><br><span class="line"><span class="comment">       现在点在第一个位置。这个方法是不断二分，将这个点夹逼到一个很小的位置 */</span></span><br><span class="line">    <span class="comment">/* divide by 2**step.</span></span><br><span class="line"><span class="comment">     * Then, for 0-1 coordinate, multiply times scale and add</span></span><br><span class="line"><span class="comment">       to the min to get the absolute coordinate. */</span></span><br><span class="line">    area-&gt;latitude.<span class="built_in">min</span> =</span><br><span class="line">        lat_range.<span class="built_in">min</span> + (ilato * <span class="number">1.0</span> / (<span class="number">1u</span>ll &lt;&lt; <span class="built_in">step</span>)) * lat_scale;</span><br><span class="line">    area-&gt;latitude.<span class="built_in">max</span> =</span><br><span class="line">        lat_range.<span class="built_in">min</span> + ((ilato + <span class="number">1</span>) * <span class="number">1.0</span> / (<span class="number">1u</span>ll &lt;&lt; <span class="built_in">step</span>)) * lat_scale;</span><br><span class="line">    area-&gt;longitude.<span class="built_in">min</span> =</span><br><span class="line">        long_range.<span class="built_in">min</span> + (ilono * <span class="number">1.0</span> / (<span class="number">1u</span>ll &lt;&lt; <span class="built_in">step</span>)) * long_scale;</span><br><span class="line">    area-&gt;longitude.<span class="built_in">max</span> =</span><br><span class="line">        long_range.<span class="built_in">min</span> + ((ilono + <span class="number">1</span>) * <span class="number">1.0</span> / (<span class="number">1u</span>ll &lt;&lt; <span class="built_in">step</span>)) * long_scale;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">return</span> <span class="number">1</span>;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<ol start="2">
+<li><strong>geohashDecodeAreaToLongLat</strong>：</li>
+</ol>
+<p>上面一个函数将点夹逼在一个很小的范围内，这个函数将夹逼的点还原（感觉整的像分析代码逻辑，本文不讲逻辑，只讲优化方案）。</p>
+<figure class="highlight angelscript"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 将夹逼的点还原成原来的点</span></span><br><span class="line"><span class="built_in">int</span> geohashDecodeAreaToLongLat(<span class="keyword">const</span> GeoHashArea *area, <span class="built_in">double</span> *xy) &#123;</span><br><span class="line">    <span class="keyword">if</span> (!xy) <span class="keyword">return</span> <span class="number">0</span>;</span><br><span class="line">    xy[<span class="number">0</span>] = (area-&gt;longitude.min + area-&gt;longitude.max) / <span class="number">2</span>;</span><br><span class="line">    <span class="keyword">if</span> (xy[<span class="number">0</span>] &gt; GEO_LONG_MAX) xy[<span class="number">0</span>] = GEO_LONG_MAX;</span><br><span class="line">    <span class="keyword">if</span> (xy[<span class="number">0</span>] &lt; GEO_LONG_MIN) xy[<span class="number">0</span>] = GEO_LONG_MIN;</span><br><span class="line">    xy[<span class="number">1</span>] = (area-&gt;latitude.min + area-&gt;latitude.max) / <span class="number">2</span>;</span><br><span class="line">    <span class="keyword">if</span> (xy[<span class="number">1</span>] &gt; GEO_LAT_MAX) xy[<span class="number">1</span>] = GEO_LAT_MAX;</span><br><span class="line">    <span class="keyword">if</span> (xy[<span class="number">1</span>] &lt; GEO_LAT_MIN) xy[<span class="number">1</span>] = GEO_LAT_MIN;</span><br><span class="line">    <span class="keyword">return</span> <span class="number">1</span>;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>下图为耗时图：</p>
+<p><img src="/images/image-20210804102350648.png" alt="image-20210804102350648"></p>
+<h5 id="zmalloc-amp-free"><a href="#zmalloc-amp-free" class="headerlink" title="zmalloc&amp;free"></a>zmalloc&amp;free</h5><p>这个道理都懂，分配内存和释放内存所耗费的时间，大约耗时 20%。这里代码分析的少，感觉没有用内存池，觉得可以加一个内存池，来避免系统调用的开销？但 redis 设计者应该也想到这个方案了，他们肯定有自己的顾虑。 </p>
+<figure class="highlight arduino"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">void</span> *<span class="title">ztrymalloc_usable</span><span class="params">(<span class="keyword">size_t</span> <span class="built_in">size</span>, <span class="keyword">size_t</span> *usable)</span> </span>&#123;</span><br><span class="line">    ASSERT_NO_SIZE_OVERFLOW(<span class="built_in">size</span>);</span><br><span class="line">    <span class="keyword">void</span> *ptr = <span class="built_in">malloc</span>(MALLOC_MIN_SIZE(<span class="built_in">size</span>)+PREFIX_SIZE);</span><br><span class="line"></span><br><span class="line">    <span class="keyword">if</span> (!ptr) <span class="keyword">return</span> <span class="literal">NULL</span>;</span><br><span class="line">		...</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>下图为耗时图：</p>
+<p><img src="/images/image-20210804105423195.png" alt="image-20210804105423195"></p>
+<h4 id="addReplyDoubleDistance"><a href="#addReplyDoubleDistance" class="headerlink" title="addReplyDoubleDistance"></a>addReplyDoubleDistance</h4><p>这个函数中最耗时的是调用 stdio 中的<code>snprintf</code>函数，耗时占 18.3%。</p>
+<p>这个函数我觉得不能改造（天呐！怎么有人改造 stdio 中的函数）。如果要改造，通用性就不强了，如果有更好的方案欢迎聊聊。</p>
+<figure class="highlight reasonml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">/* The default addReplyDouble has too much accuracy.  We use this</span></span><br><span class="line"><span class="comment"> * for returning location distances. "5.2145 meters away" is nicer</span></span><br><span class="line"><span class="comment"> * than "5.2144992818115 meters away." We provide 4 digits after the dot</span></span><br><span class="line"><span class="comment"> * so that the returned value is decently accurate even when the unit is</span></span><br><span class="line"><span class="comment"> * the kilometer. */</span></span><br><span class="line">void add<span class="constructor">ReplyDoubleDistance(<span class="params">client</span> <span class="operator">*</span><span class="params">c</span>, <span class="params">double</span> <span class="params">d</span>)</span> &#123;</span><br><span class="line">    <span class="built_in">char</span> dbuf<span class="literal">[<span class="number">128</span>]</span>;</span><br><span class="line">    <span class="built_in">int</span> dlen = snprintf(dbuf, sizeof(dbuf), <span class="string">"%.4f"</span>, d);</span><br><span class="line">    add<span class="constructor">ReplyBulkCBuffer(<span class="params">c</span>, <span class="params">dbuf</span>, <span class="params">dlen</span>)</span>;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+
+
+<p><img src="/images/image-20210804111059575.png" alt="image-20210804111059575"></p>
+<h4 id="addReplyBulkSds"><a href="#addReplyBulkSds" class="headerlink" title="addReplyBulkSds"></a>addReplyBulkSds</h4><p>明显可以看出最耗时的也是库函数调用，试问，和解？我觉得无解。</p>
+<p><img src="/images/image-20210804113401364.png" alt="image-20210804113401364"></p>
+<h2 id="总结：redis-geo-性能优化方案"><a href="#总结：redis-geo-性能优化方案" class="headerlink" title="总结：redis geo 性能优化方案"></a>总结：redis geo 性能优化方案</h2><p>总的来说 redis 性能还是很 ok 的。学习代码和性能分析后，我们可以看出，redis geo 最耗时的代码主要集中在：大量的计算，库函数调用上。所以提出以下的解决方案：</p>
+<ul>
+<li>redis 层面上<ul>
+<li>可以采用精确度更低的计算距离的算法来提升速率。</li>
+<li>针对特定的业务，可以采用自己编写的函数来提升速率（损失通用性，增加性能）。</li>
+</ul>
+</li>
+<li>调用层面上<ul>
+<li>可以缓存地理位置的<strong>“哈希方格”</strong>来提高效率（基本上类似于上面的<code>geohashDecode</code>函数，方格大小按业务进行选择）。不建议一个点一个点缓存，基本不可能命中。白白消耗时间。</li>
+</ul>
+</li>
+<li>物理层面上<del>（大道至简…）</del><ul>
+<li>增加机器。</li>
+<li>由于 redis 是单线程，每个机器上多放几个 redis，增加多核利用率。</li>
+</ul>
+</li>
+</ul>
+<p>注：本人分析的 redis 版本为<a href="https://github.com/ghorges/redis.git" target="_blank" rel="noopener">测试版本</a>（我自己的个人注释也在这里），从 redis fork 的分支。若需要分析稳定版本的请在网上自行下载。</p>
+
+    </div>
+
+    
+    
+    
+        
+
+<div>
+<ul class="post-copyright">
+  <li class="post-copyright-author">
+    <strong>本文作者： </strong>木叶
+  </li>
+  <li class="post-copyright-link">
+    <strong>本文链接：</strong>
+    <a href="https://hao336.cn/2022/08/27/redis%20geo%20%E6%80%A7%E8%83%BD%E5%88%86%E6%9E%90%E5%8F%8A%E5%AF%B9%E9%97%AE%E9%A2%98%E7%9A%84%E6%80%9D%E8%80%83/" title="redis geo 性能分析及对问题的思考">https://hao336.cn/2022/08/27/redis geo 性能分析及对问题的思考/</a>
+  </li>
+  <li class="post-copyright-license">
+    <strong>版权声明： </strong>本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/zh-CN" rel="noopener" target="_blank"><i class="fab fa-fw fa-creative-commons"></i>BY-NC-SA</a> 许可协议。转载请注明出处！
+  </li>
+</ul>
+</div>
+
+
+      <footer class="post-footer">
+
+        
+
+
+        
+    <div class="post-nav">
+      <div class="post-nav-item">
+    <a href="/2022/08/27/PostgreSQL-gis%20Redis-geo%20buntdb%E6%80%A7%E8%83%BD%E6%AF%94%E6%8B%BC/" rel="prev" title="PostgreSQL-gis Redis-geo buntdb性能比拼">
+      <i class="fa fa-chevron-left"></i> PostgreSQL-gis Redis-geo buntdb性能比拼
+    </a></div>
+      <div class="post-nav-item"></div>
+    </div>
+      </footer>
+    
+  </article>
+  
+  
+  
+
+
+
+          </div>
+          
+    <div class="comments" id="valine-comments"></div>
+
+<script>
+  window.addEventListener('tabs:register', () => {
+    let { activeClass } = CONFIG.comments;
+    if (CONFIG.comments.storage) {
+      activeClass = localStorage.getItem('comments_active') || activeClass;
+    }
+    if (activeClass) {
+      let activeTab = document.querySelector(`a[href="#comment-${activeClass}"]`);
+      if (activeTab) {
+        activeTab.click();
+      }
+    }
+  });
+  if (CONFIG.comments.storage) {
+    window.addEventListener('tabs:click', event => {
+      if (!event.target.matches('.tabs-comment .tab-content .tab-pane')) return;
+      let commentClass = event.target.classList[1];
+      localStorage.setItem('comments_active', commentClass);
+    });
+  }
+</script>
+
+        </div>
+          
+  
+  <div class="toggle sidebar-toggle">
+    <span class="toggle-line toggle-line-first"></span>
+    <span class="toggle-line toggle-line-middle"></span>
+    <span class="toggle-line toggle-line-last"></span>
+  </div>
+
+  <aside class="sidebar">
+    <div class="sidebar-inner">
+
+      <ul class="sidebar-nav motion-element">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <!--noindex-->
+      <div class="post-toc-wrap sidebar-panel">
+          <div class="post-toc motion-element"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#redis-geo-性能分析及对问题的思考"><span class="nav-number">1.</span> <span class="nav-text">redis geo 性能分析及对问题的思考</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#对-redis-进行压力测试"><span class="nav-number">1.1.</span> <span class="nav-text">对 redis 进行压力测试</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#对-redis-进行满载压力分析"><span class="nav-number">1.2.</span> <span class="nav-text">对 redis 进行满载压力分析</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#georadiusGeneric"><span class="nav-number">1.2.1.</span> <span class="nav-text">georadiusGeneric</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#membersOfGeoHashBox"><span class="nav-number">1.2.1.1.</span> <span class="nav-text">membersOfGeoHashBox</span></a><ol class="nav-child"><li class="nav-item nav-level-5"><a class="nav-link" href="#geohashGetDistance"><span class="nav-number">1.2.1.1.1.</span> <span class="nav-text">geohashGetDistance</span></a></li><li class="nav-item nav-level-5"><a class="nav-link" href="#decodeGeohash"><span class="nav-number">1.2.1.1.2.</span> <span class="nav-text">decodeGeohash</span></a></li><li class="nav-item nav-level-5"><a class="nav-link" href="#zmalloc-amp-free"><span class="nav-number">1.2.1.1.3.</span> <span class="nav-text">zmalloc&amp;free</span></a></li></ol></li><li class="nav-item nav-level-4"><a class="nav-link" href="#addReplyDoubleDistance"><span class="nav-number">1.2.1.2.</span> <span class="nav-text">addReplyDoubleDistance</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#addReplyBulkSds"><span class="nav-number">1.2.1.3.</span> <span class="nav-text">addReplyBulkSds</span></a></li></ol></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#总结：redis-geo-性能优化方案"><span class="nav-number">1.3.</span> <span class="nav-text">总结：redis geo 性能优化方案</span></a></li></ol></li></ol></div>
+      </div>
+      <!--/noindex-->
+
+      <div class="site-overview-wrap sidebar-panel">
+        <div class="site-author motion-element" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name">木叶</p>
+  <div class="site-description" itemprop="description">记录自己成长、生活和变化</div>
+</div>
+<div class="site-state-wrap motion-element">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+          <a href="/archives">
+          <span class="site-state-item-count">12</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-tags">
+            <a href="/tags/">
+          
+        <span class="site-state-item-count">6</span>
+        <span class="site-state-item-name">标签</span></a>
+      </div>
+  </nav>
+</div>
+  <div class="links-of-author motion-element">
+      <span class="links-of-author-item">
+        <a href="https://github.com/ghorges" title="GitHub → https:&#x2F;&#x2F;github.com&#x2F;ghorges" rel="noopener" target="_blank"><i class="fab fa-github fa-fw"></i>GitHub</a>
+      </span>
+      <span class="links-of-author-item">
+        <a href="mailto:mayichenga@gmail.com" title="E-Mail → mailto:mayichenga@gmail.com" rel="noopener" target="_blank"><i class="fa fa-envelope fa-fw"></i>E-Mail</a>
+      </span>
+  </div>
+
+
+
+      </div>
+        <div class="back-to-top motion-element">
+          <i class="fa fa-arrow-up"></i>
+          <span>0%</span>
+        </div>
+
+    </div>
+  </aside>
+  <div id="sidebar-dimmer"></div>
+
+
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        
+
+        
+
+<div class="copyright">
+  
+  &copy; 
+  <span itemprop="copyrightYear">2022</span>
+  <span class="with-love">
+    <i class="fa fa-heart"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">muye</span>
+</div>
+
+        
+
+
+
+
+
+
+
+
+      </div>
+    </footer>
+  </div>
+
+  
+  <script src="/lib/anime.min.js"></script>
+  <script src="/lib/velocity/velocity.min.js"></script>
+  <script src="/lib/velocity/velocity.ui.min.js"></script>
+
+<script src="/js/utils.js"></script>
+
+<script src="/js/motion.js"></script>
+
+
+<script src="/js/schemes/pisces.js"></script>
+
+
+<script src="/js/next-boot.js"></script>
+
+
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+  
+
+
+<script>
+NexT.utils.loadComments(document.querySelector('#valine-comments'), () => {
+  NexT.utils.getScript('//unpkg.com/valine/dist/Valine.min.js', () => {
+    var GUEST = ['nick', 'mail', 'link'];
+    var guest = 'nick,mail,link';
+    guest = guest.split(',').filter(item => {
+      return GUEST.includes(item);
+    });
+    new Valine({
+      el         : '#valine-comments',
+      verify     : false,
+      notify     : false,
+      appId      : 'ekxvRu1kXvqXEgpw5jdtsvQq-gzGzoHsz',
+      appKey     : '0DwW3KORbtYml3EGcNh6Pwop',
+      placeholder: "有疑惑或心得都可以分享出来哦~",
+      avatar     : 'mm',
+      meta       : guest,
+      pageSize   : '10' || 10,
+      visitor    : false,
+      lang       : '' || 'zh-cn',
+      path       : location.pathname,
+      recordIP   : false,
+      serverURLs : ''
+    });
+  }, window.Valine);
+});
+</script>
+
+</body>
+</html>
