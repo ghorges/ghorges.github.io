@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img" aria-label="M icon in hexagon">
+  <title>M in Hex</title>
+  <g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+    <!-- 六边形外框 -->
+    <path d="M12 2 20 7v10l-8 5-8-5V7l8-5Z" stroke-width="1.9"></path>
+    <!-- 几何大写 M -->
+    <path d="M7 16V8l5 5 5-5v8" stroke-width="2.6"></path>
+  </g>
+</svg>
